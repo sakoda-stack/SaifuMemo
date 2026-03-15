@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, HeartPulse, List, NotebookPen } from "lucide-react";
+import { ChevronLeft, ChevronRight, HeartPulse, NotebookPen } from "lucide-react";
 import { db, getMonthlyFixedRecords } from "@/db/database";
-import { ActionCard, DataBadge, EmptyState, SectionHeader } from "@/components/ui/PlannerUI";
+import { DataBadge, EmptyState, SectionHeader } from "@/components/ui/PlannerUI";
 import { addMonths, formatMonthYear, formatYen, getMonthRange, sumBy } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
 import type { Category, Expense, MedicalExpense, Member } from "@/types";
 
 interface HomeScreenProps {
   onOpenList: () => void;
+  onOpenFixedList: () => void;
   onOpenCalendar: () => void;
   onOpenMedicalDashboard: () => void;
-  onOpenExpenseManual: (date?: string) => void;
-  onOpenMedicalManual: (date?: string) => void;
 }
 
 interface RecentRecord {
@@ -33,10 +32,9 @@ interface FixedRecordView {
 
 export default function HomeScreen({
   onOpenList,
+  onOpenFixedList,
   onOpenCalendar,
   onOpenMedicalDashboard,
-  onOpenExpenseManual,
-  onOpenMedicalManual,
 }: HomeScreenProps) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -172,19 +170,9 @@ export default function HomeScreen({
 
         <div className="mt-4 grid grid-cols-2 gap-2.5">
           <HomeSummaryCard label="支出" value={formatYen(monthTotal)} sideTop={`${recordCount}件`} sideBottom={leadingCategory ? leadingCategory.name : "未記録"} onClick={onOpenList} />
-          <HomeSummaryCard label="医療費" value={formatYen(medicalTotal)} sideTop={`${medicals.length}件`} sideBottom="明細" tone="medical" onClick={onOpenMedicalDashboard} />
-          <HomeSummaryCard label="記録日" value={`${activeDays}日`} sideTop="日別確認" sideBottom="カレンダー" onClick={onOpenCalendar} />
-          <HomeSummaryCard label="固定費" value={formatYen(fixedTotal)} sideTop={`${fixedRecords.length}件`} sideBottom={unconfirmedFixedCount > 0 ? `未確認 ${unconfirmedFixedCount}` : "確認済み"} onClick={onOpenList} />
-        </div>
-      </section>
-
-      <section className="planner-card">
-        <SectionHeader kicker="PORTAL" title="入口" />
-        <div className="mt-4 grid grid-cols-2 gap-2.5">
-          <ActionCard title="支出を追加" icon={<NotebookPen size={18} />} tone="accent" onClick={() => onOpenExpenseManual()} />
-          <ActionCard title="医療費を追加" icon={<HeartPulse size={18} />} tone="medical" onClick={() => onOpenMedicalManual()} />
-          <ActionCard title="記録一覧" icon={<List size={18} />} tone="soft" onClick={onOpenList} />
-          <ActionCard title="カレンダー" icon={<List size={18} />} tone="soft" onClick={onOpenCalendar} />
+          <HomeSummaryCard label="医療費" value={formatYen(medicalTotal)} sideTop={`${medicals.length}件`} sideBottom="医療費" tone="medical" onClick={onOpenMedicalDashboard} />
+          <HomeSummaryCard label="記録日" value={`${activeDays}日`} sideTop="日別" sideBottom="カレンダー" onClick={onOpenCalendar} />
+          <HomeSummaryCard label="固定費" value={formatYen(fixedTotal)} sideTop={`${fixedRecords.length}件`} sideBottom={unconfirmedFixedCount > 0 ? `未確認 ${unconfirmedFixedCount}` : "確認済み"} onClick={onOpenFixedList} />
         </div>
       </section>
 
@@ -222,7 +210,7 @@ export default function HomeScreen({
             <EmptyState title="固定費はありません" message="固定費テンプレートを確認してください。" />
           ) : (
             fixedRecords.map((record) => (
-              <button key={record.id} type="button" onClick={onOpenList} className="planner-summary-row planner-summary-row-button">
+              <button key={record.id} type="button" onClick={onOpenFixedList} className="planner-summary-row planner-summary-row-button">
                 <div className="planner-summary-icon bg-[rgba(72,108,165,0.12)] text-[var(--planner-accent)]">
                   <NotebookPen size={16} />
                 </div>

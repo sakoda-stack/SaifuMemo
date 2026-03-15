@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ChevronLeft, ChevronRight, Circle, HeartPulse, Trash2 } from "lucide-react";
-import { db, deleteExpenseCascade } from "@/db/database";
+import { CheckCircle2, ChevronLeft, ChevronRight, Circle, HeartPulse, NotebookPen, Trash2 } from "lucide-react";
+import { db, deleteExpenseCascade, getMonthlyFixedRecords } from "@/db/database";
 import { EmptyState, SectionHeader } from "@/components/ui/PlannerUI";
 import { addMonths, formatDateDisplay, formatMonthYear, formatYen, getMonthRange } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
 import type { Category, Expense, MedicalExpense, Member } from "@/types";
 
-type Filter = "all" | "unchecked" | "medical";
+type Filter = "all" | "unchecked" | "medical" | "fixed";
 
 interface DayGroup {
   date: string;
@@ -19,31 +19,39 @@ const FILTER_LABELS: Record<Filter, string> = {
   all: "すべて",
   unchecked: "未確認",
   medical: "医療費",
+  fixed: "固定費",
 };
 
-export default function ListScreen() {
+export default function ListScreen({ initialFilter = "all" }: { initialFilter?: Filter }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>(initialFilter);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [medicals, setMedicals] = useState<MedicalExpense[]>([]);
+  const [fixedRecords, setFixedRecords] = useState<Array<{ id: string; actualAmount: number; isConfirmed: boolean; templateName: string }>>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
 
+  useEffect(() => {
+    setFilter(initialFilter);
+  }, [initialFilter]);
+
   const load = useCallback(async () => {
     const { start, end } = getMonthRange(year, month);
-    const [categoryRows, memberRows, expenseRows, medicalRows] = await Promise.all([
+    const [categoryRows, memberRows, expenseRows, medicalRows, fixedRows] = await Promise.all([
       db.categories.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
       db.members.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
       db.expenses.where("date").between(start, end, true, false).toArray(),
       db.medicalExpenses.where("paymentDate").between(start, end, true, false).toArray(),
+      getMonthlyFixedRecords(year, month),
     ]);
 
     setCategories(categoryRows);
     setMembers(memberRows);
     setExpenses(expenseRows.sort((left, right) => right.date.localeCompare(left.date)));
     setMedicals(medicalRows.sort((left, right) => right.paymentDate.localeCompare(left.paymentDate)));
+    setFixedRecords(fixedRows);
   }, [month, year]);
 
   useEffect(() => {
@@ -51,14 +59,16 @@ export default function ListScreen() {
   }, [load]);
 
   const uncheckedCount = expenses.filter((expense) => !expense.isChecked).length + medicals.filter((medical) => !medical.isChecked).length;
+  const fixedUncheckedCount = fixedRecords.filter((record) => !record.isConfirmed).length;
   const filteredExpenses = expenses.filter((expense) => {
     if (filter === "unchecked") return !expense.isChecked;
-    if (filter === "medical") return false;
+    if (filter === "medical" || filter === "fixed") return false;
     return true;
   });
   const filteredMedicals = medicals.filter((medical) => {
     if (filter === "unchecked") return !medical.isChecked;
     if (filter === "medical") return true;
+    if (filter === "fixed") return false;
     return true;
   });
 
@@ -160,12 +170,36 @@ export default function ListScreen() {
           ))}
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <CompactOverviewStat label="合計" value={`${expenses.length + medicals.length}件`} />
-          <CompactOverviewStat label="未確認" value={`${uncheckedCount}件`} />
+          <CompactOverviewStat label="合計" value={filter === "fixed" ? `${fixedRecords.length}件` : `${expenses.length + medicals.length}件`} />
+          <CompactOverviewStat label="未確認" value={`${filter === "fixed" ? fixedUncheckedCount : uncheckedCount}件`} />
         </div>
       </section>
 
-      {dayGroups.length === 0 ? (
+      {filter === "fixed" ? (
+        <section className="planner-card">
+          <SectionHeader kicker="FIXED" title={`合計 ${formatYen(fixedRecords.reduce((total, record) => total + record.actualAmount, 0))}`} />
+          <div className="mt-4 space-y-3">
+            {fixedRecords.length === 0 ? (
+              <EmptyState title="固定費はありません" message="この月の固定費はありません。" />
+            ) : (
+              fixedRecords.map((record) => (
+                <div key={record.id} className="planner-summary-row">
+                  <div className="planner-summary-icon bg-[rgba(72,108,165,0.12)] text-[var(--planner-accent)]">
+                    <NotebookPen size={16} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="truncate text-sm font-semibold">{record.templateName}</p>
+                      <p className="shrink-0 text-sm font-semibold">{formatYen(record.actualAmount)}</p>
+                    </div>
+                    <p className="text-xs text-[var(--planner-subtle)]">{record.isConfirmed ? "確認済み" : "未確認"}</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      ) : dayGroups.length === 0 ? (
         <section className="planner-card">
           <EmptyState title="記録がありません" message="表示できる記録がありません。" />
         </section>

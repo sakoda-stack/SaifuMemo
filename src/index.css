@@ -82,7 +82,8 @@ button {
   position: relative;
   z-index: 20;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: space-between;
   gap: 10px;
   padding: 6px 12px 10px;
   background: linear-gradient(180deg, rgba(232, 222, 211, 0.96), rgba(232, 222, 211, 0.84));
@@ -720,7 +721,7 @@ button {
 
 .planner-home-summary-value {
   margin: 3px 0 0;
-  font-size: 18px;
+  font-size: clamp(15px, 4vw, 18px);
   font-weight: 700;
   line-height: 1.1;
   color: var(--planner-text);
@@ -841,12 +842,22 @@ button {
 }
 
 .planner-calendar-tile {
-  min-height: 84px;
+  min-height: 72px;
   border: 0;
   background: var(--planner-paper);
-  padding: 8px;
+  padding: 6px;
   text-align: left;
   vertical-align: top;
+}
+
+.planner-calendar-amount {
+  display: inline-block;
+  max-width: 100%;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--planner-accent);
+  white-space: nowrap;
 }
 
 .planner-calendar-tile-muted {
@@ -860,9 +871,9 @@ button {
 
 .planner-mini-stamp,
 .planner-mini-count {
-  width: 22px;
-  height: 22px;
-  font-size: 10px;
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
 }
 
 .planner-mini-stamp {
@@ -959,8 +970,8 @@ button {
   }
 
   .planner-calendar-tile {
-    min-height: 74px;
-    padding: 6px;
+    min-height: 64px;
+    padding: 5px;
   }
 
   .planner-modal-sheet {

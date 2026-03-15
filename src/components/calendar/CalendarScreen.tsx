@@ -157,19 +157,20 @@ export default function CalendarScreen({ onAddExpense, onAddMedical }: CalendarS
                   <>
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-xs font-semibold">{parseInt(cell.date.slice(-2), 10)}</span>
-                      {summary ? <span className="text-[10px] font-semibold text-[var(--planner-accent)]">{compactYen(summary.total)}</span> : null}
+                      {summary ? <span className="planner-calendar-amount">{compactYen(summary.total)}</span> : null}
                     </div>
                     {summary ? (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {summary.entries.slice(0, 2).map((entry) => {
+                      <div className="mt-1.5 flex items-center gap-1">
+                        {(() => {
+                          const entry = summary.entries[0];
                           const Icon = resolveIcon(entry.icon, "ReceiptText");
                           return (
-                            <span key={entry.id} className="planner-mini-stamp" style={{ backgroundColor: `${entry.color}18`, color: entry.color }}>
-                              <Icon size={12} />
+                            <span className="planner-mini-stamp" style={{ backgroundColor: `${entry.color}18`, color: entry.color }}>
+                              <Icon size={11} />
                             </span>
                           );
-                        })}
-                        {summary.entries.length > 2 ? <span className="planner-mini-count">+{summary.entries.length - 2}</span> : null}
+                        })()}
+                        {summary.entries.length > 1 ? <span className="planner-mini-count">+{summary.entries.length - 1}</span> : null}
                       </div>
                     ) : null}
                   </>

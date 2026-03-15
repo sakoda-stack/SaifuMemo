@@ -6,19 +6,18 @@ import CalendarScreen from "@/components/calendar/CalendarScreen";
 import HomeScreen from "@/components/home/HomeScreen";
 import ListScreen from "@/components/list/ListScreen";
 import MedicalScreen from "@/components/medical/MedicalScreen";
-import MoreScreen from "@/components/more/MoreScreen";
 import SettingsScreen from "@/components/settings/SettingsScreen";
 import { generateFixedRecords, seedIfNeeded } from "@/db/database";
 import { todayString } from "@/utils";
 
-type Page = "home" | "list" | "calendar" | "more" | "medical" | "settings";
+type Page = "home" | "list" | "calendar" | "medical" | "settings";
 type AddFlow = "expense-manual" | "medical-manual" | null;
+type ListFilter = "all" | "unchecked" | "medical" | "fixed";
 
 const PAGE_TITLE: Record<Page, string> = {
   home: "今月の家計",
   list: "記録一覧",
   calendar: "カレンダー",
-  more: "その他",
   medical: "医療費",
   settings: "設定",
 };
@@ -28,7 +27,7 @@ const BOTTOM_NAV = [
   { id: "list", label: "記録", icon: List },
   { id: "add", label: "追加", icon: Plus },
   { id: "calendar", label: "カレンダー", icon: CalendarDays },
-  { id: "more", label: "その他", icon: NotebookPen },
+  { id: "medical", label: "医療費", icon: HeartPulse },
 ] as const;
 
 export default function App() {
@@ -37,6 +36,7 @@ export default function App() {
   const [addFlow, setAddFlow] = useState<AddFlow>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [recordDate, setRecordDate] = useState(todayString());
+  const [listFilter, setListFilter] = useState<ListFilter>("all");
 
   useEffect(() => {
     void seedIfNeeded();
@@ -61,10 +61,6 @@ export default function App() {
   };
 
   const currentBottomTab = useMemo(() => {
-    if (page === "medical" || page === "settings") {
-      return "more";
-    }
-
     return page;
   }, [page]);
 
@@ -83,6 +79,11 @@ export default function App() {
             <p className="planner-app-bar-kicker">SaifuMemo</p>
             <h1 className="planner-app-bar-title">{PAGE_TITLE[page]}</h1>
           </div>
+          {page !== "settings" ? (
+            <button type="button" onClick={() => setPage("settings")} className="planner-icon-button shrink-0" aria-label="設定を開く">
+              <Settings size={16} />
+            </button>
+          ) : null}
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto px-3 pb-24 pt-1">
@@ -90,23 +91,25 @@ export default function App() {
             {page === "home" ? (
               <HomeScreen
                 key={refreshKey}
-                onOpenList={() => setPage("list")}
+                onOpenList={() => {
+                  setListFilter("all");
+                  setPage("list");
+                }}
+                onOpenFixedList={() => {
+                  setListFilter("fixed");
+                  setPage("list");
+                }}
                 onOpenCalendar={() => setPage("calendar")}
                 onOpenMedicalDashboard={() => setPage("medical")}
-                onOpenExpenseManual={(date) => openAddFlow("expense-manual", date)}
-                onOpenMedicalManual={(date) => openAddFlow("medical-manual", date)}
               />
             ) : null}
-            {page === "list" ? <ListScreen key={refreshKey} /> : null}
+            {page === "list" ? <ListScreen key={`${refreshKey}-${listFilter}`} initialFilter={listFilter} /> : null}
             {page === "calendar" ? (
               <CalendarScreen
                 key={refreshKey}
                 onAddExpense={(date) => openAddFlow("expense-manual", date)}
                 onAddMedical={(date) => openAddFlow("medical-manual", date)}
               />
-            ) : null}
-            {page === "more" ? (
-              <MoreScreen onOpenMedical={() => setPage("medical")} onOpenSettings={() => setPage("settings")} />
             ) : null}
             {page === "medical" ? <MedicalScreen key={refreshKey} /> : null}
             {page === "settings" ? <SettingsScreen key={refreshKey} /> : null}
