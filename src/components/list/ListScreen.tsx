@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronLeft, ChevronRight, Circle, Edit3, HeartPulse, NotebookPen, Trash2 } from "lucide-react";
 import { db, deleteExpenseCascade, getMonthlyFixedRecords } from "@/db/database";
 import { EmptyState, SectionHeader, StickyActionBar } from "@/components/ui/PlannerUI";
@@ -12,8 +12,7 @@ type Filter = "all" | "unchecked" | "medical" | "fixed";
 type BreakdownTarget =
   | { kind: "all" }
   | { kind: "category"; categoryId: string; label: string }
-  | { kind: "medical"; label: string }
-  | { kind: "fixed"; label: string };
+  | { kind: "medical"; label: string };
 
 interface DayGroup {
   date: string;
@@ -47,11 +46,10 @@ const FILTER_LABELS: Record<Filter, string> = {
 
 export default function ListScreen({ initialFilter = "all" }: { initialFilter?: Filter }) {
   const today = new Date();
-  const listRef = useRef<HTMLElement | null>(null);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [filter, setFilter] = useState<Filter>(initialFilter);
-  const [breakdownTarget, setBreakdownTarget] = useState<BreakdownTarget>(resolveInitialBreakdown(initialFilter));
+  const [selectedBreakdown, setSelectedBreakdown] = useState<BreakdownTarget>({ kind: "all" });
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [medicals, setMedicals] = useState<MedicalExpense[]>([]);
   const [fixedRecords, setFixedRecords] = useState<FixedRecordView[]>([]);
@@ -74,7 +72,6 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
 
   useEffect(() => {
     setFilter(initialFilter);
-    setBreakdownTarget(resolveInitialBreakdown(initialFilter));
   }, [initialFilter]);
 
   const load = useCallback(async () => {
@@ -105,49 +102,20 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
 
   const setListFilter = (nextFilter: Filter) => {
     setFilter(nextFilter);
-
-    if (nextFilter === "medical") {
-      setBreakdownTarget({ kind: "medical", label: "医療費" });
-      return;
-    }
-
-    if (nextFilter === "fixed") {
-      setBreakdownTarget({ kind: "fixed", label: "固定費" });
-      return;
-    }
-
-    setBreakdownTarget((current) => {
-      if (current.kind === "medical" || current.kind === "fixed") {
-        return { kind: "all" };
-      }
-      return current;
-    });
-  };
-
-  const jumpToList = () => {
-    listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const handleBreakdownSelect = (segment: { kind: "category" | "medical"; categoryId?: string; label: string }) => {
     if (segment.kind === "medical") {
-      setFilter("medical");
-      setBreakdownTarget({ kind: "medical", label: segment.label });
-      jumpToList();
+      setSelectedBreakdown({ kind: "medical", label: segment.label });
       return;
     }
 
     if (!segment.categoryId) return;
-
-    setFilter("all");
-    setBreakdownTarget({ kind: "category", categoryId: segment.categoryId, label: segment.label });
-    jumpToList();
+    setSelectedBreakdown({ kind: "category", categoryId: segment.categoryId, label: segment.label });
   };
 
   const clearBreakdownTarget = () => {
-    setBreakdownTarget({ kind: "all" });
-    if (filter === "medical" || filter === "fixed") {
-      setFilter("all");
-    }
+    setSelectedBreakdown({ kind: "all" });
   };
 
   const uncheckedCount = expenses.filter((expense) => !expense.isChecked).length + medicals.filter((medical) => !medical.isChecked).length;
@@ -156,16 +124,12 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
   const filteredExpenses = expenses.filter((expense) => {
     if (filter === "fixed" || filter === "medical") return false;
     if (filter === "unchecked" && expense.isChecked) return false;
-    if (breakdownTarget.kind === "category") return expense.categoryId === breakdownTarget.categoryId;
-    if (breakdownTarget.kind === "medical" || breakdownTarget.kind === "fixed") return false;
     return true;
   });
 
   const filteredMedicals = medicals.filter((medical) => {
     if (filter === "fixed") return false;
     if (filter === "unchecked" && medical.isChecked) return false;
-    if (breakdownTarget.kind === "category" || breakdownTarget.kind === "fixed") return false;
-    if (filter === "medical" || breakdownTarget.kind === "medical") return true;
     return true;
   });
 
@@ -208,7 +172,6 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
       .filter((segment) => segment.total > 0);
 
     const medicalTotal = medicals.reduce((sum, medical) => sum + medical.amount, 0);
-
     if (medicalTotal > 0) {
       segments.push({
         id: medicalCategory?.id ?? "medical",
@@ -227,14 +190,14 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
         ...segment,
         share: total > 0 ? segment.total / total : 0,
         isActive:
-          (segment.kind === "category" && breakdownTarget.kind === "category" && breakdownTarget.categoryId === segment.categoryId) ||
-          (segment.kind === "medical" && breakdownTarget.kind === "medical"),
+          (segment.kind === "category" && selectedBreakdown.kind === "category" && selectedBreakdown.categoryId === segment.categoryId) ||
+          (segment.kind === "medical" && selectedBreakdown.kind === "medical"),
       }));
-  }, [breakdownTarget, categories, expenses, medicals]);
+  }, [categories, expenses, medicals, selectedBreakdown]);
 
   const totalSpend = breakdownSegments.reduce((sum, segment) => sum + segment.total, 0);
-  const activeBreakdownLabel = breakdownTarget.kind === "all" || breakdownTarget.kind === "fixed" ? "" : breakdownTarget.label;
-  const isFixedMode = filter === "fixed" || breakdownTarget.kind === "fixed";
+  const activeBreakdownLabel = selectedBreakdown.kind === "all" ? "" : selectedBreakdown.label;
+  const isFixedMode = filter === "fixed";
 
   const goMonth = (delta: number) => {
     const next = addMonths(year, month, delta);
@@ -358,7 +321,7 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
         <SectionHeader
           kicker="BREAKDOWN"
           title="支出内訳"
-          action={activeBreakdownLabel ? <button type="button" onClick={clearBreakdownTarget} className="planner-link-row planner-link-row-compact">絞り込み解除</button> : undefined}
+          action={activeBreakdownLabel ? <button type="button" onClick={clearBreakdownTarget} className="planner-link-row planner-link-row-compact">選択解除</button> : undefined}
         />
         <div className="mt-4">
           {breakdownSegments.length === 0 ? (
@@ -377,7 +340,7 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
         </div>
       </section>
 
-      <section ref={listRef}>
+      <section>
         {isFixedMode ? (
           <div className="planner-card">
             <SectionHeader kicker="FIXED" title={`固定費 ${formatYen(fixedRecords.reduce((total, record) => total + record.actualAmount, 0))}`} />
@@ -575,12 +538,6 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
       ) : null}
     </div>
   );
-}
-
-function resolveInitialBreakdown(filter: Filter): BreakdownTarget {
-  if (filter === "medical") return { kind: "medical", label: "医療費" };
-  if (filter === "fixed") return { kind: "fixed", label: "固定費" };
-  return { kind: "all" };
 }
 
 function CompactOverviewStat({ label, value }: { label: string; value: string }) {
