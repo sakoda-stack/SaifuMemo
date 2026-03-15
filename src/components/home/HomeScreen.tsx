@@ -1,30 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  ChevronLeft,
-  ChevronRight,
-  HeartPulse,
-  List,
-  NotebookPen,
-  ReceiptText,
-  ScanText,
-  Store,
-} from "lucide-react";
-import { db } from "@/db/database";
+import { ChevronLeft, ChevronRight, HeartPulse, List, NotebookPen } from "lucide-react";
+import { db, getMonthlyFixedRecords } from "@/db/database";
 import { ActionCard, DataBadge, EmptyState, SectionHeader } from "@/components/ui/PlannerUI";
-import { buildProductComparisons, buildStoreSummaries } from "@/utils/compare";
-import { addMonths, compactYen, formatMonthYear, formatYen, getMonthRange, sumBy } from "@/utils";
+import { addMonths, formatMonthYear, formatYen, getMonthRange, sumBy } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
-import type { Category, Expense, FixedExpenseRecord, FixedExpenseTemplate, MedicalExpense, Member, ReceiptItemObservation } from "@/types";
+import type { Category, Expense, MedicalExpense, Member } from "@/types";
 
 interface HomeScreenProps {
   onOpenList: () => void;
   onOpenCalendar: () => void;
-  onOpenCompare: () => void;
   onOpenMedicalDashboard: () => void;
   onOpenExpenseManual: (date?: string) => void;
-  onOpenExpenseReceipt: (date?: string) => void;
   onOpenMedicalManual: (date?: string) => void;
-  onOpenMedicalReceipt: (date?: string) => void;
 }
 
 interface RecentRecord {
@@ -37,15 +24,19 @@ interface RecentRecord {
   icon: string;
 }
 
+interface FixedRecordView {
+  id: string;
+  actualAmount: number;
+  isConfirmed: boolean;
+  templateName: string;
+}
+
 export default function HomeScreen({
   onOpenList,
   onOpenCalendar,
-  onOpenCompare,
   onOpenMedicalDashboard,
   onOpenExpenseManual,
-  onOpenExpenseReceipt,
   onOpenMedicalManual,
-  onOpenMedicalReceipt,
 }: HomeScreenProps) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -55,34 +46,24 @@ export default function HomeScreen({
   const [categories, setCategories] = useState<Category[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [medicals, setMedicals] = useState<MedicalExpense[]>([]);
-  const [observations, setObservations] = useState<ReceiptItemObservation[]>([]);
-  const [fixedRecords, setFixedRecords] = useState<FixedExpenseRecord[]>([]);
-  const [fixedTemplates, setFixedTemplates] = useState<FixedExpenseTemplate[]>([]);
+  const [fixedRecords, setFixedRecords] = useState<FixedRecordView[]>([]);
 
   useEffect(() => {
     const load = async () => {
       const { start, end } = getMonthRange(year, month);
-      const [memberRows, categoryRows, expenseRows, medicalRows, observationRows, monthFixedRecords, templateRows] = await Promise.all([
+      const [memberRows, categoryRows, expenseRows, medicalRows, monthFixedRecords] = await Promise.all([
         db.members.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
         db.categories.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
         db.expenses.where("date").between(start, end, true, false).toArray(),
         db.medicalExpenses.where("paymentDate").between(start, end, true, false).toArray(),
-        db.receiptItemObservations.where("expenseDate").between(start, end, true, false).toArray(),
-        db.fixedRecords.where("[year+month]").equals([year, month]).toArray(),
-        db.fixedTemplates.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
+        getMonthlyFixedRecords(year, month),
       ]);
-
-      const filteredExpenses = memberFilter === "all" ? expenseRows : expenseRows.filter((row) => row.memberId === memberFilter);
-      const filteredMedicals = memberFilter === "all" ? medicalRows : medicalRows.filter((row) => row.memberId === memberFilter);
-      const allowedExpenseIds = new Set(filteredExpenses.map((row) => row.id));
 
       setMembers(memberRows);
       setCategories(categoryRows);
-      setExpenses(filteredExpenses);
-      setMedicals(filteredMedicals);
-      setObservations(observationRows.filter((row) => allowedExpenseIds.has(row.expenseId)));
+      setExpenses(memberFilter === "all" ? expenseRows : expenseRows.filter((row) => row.memberId === memberFilter));
+      setMedicals(memberFilter === "all" ? medicalRows : medicalRows.filter((row) => row.memberId === memberFilter));
       setFixedRecords(monthFixedRecords);
-      setFixedTemplates(templateRows);
     };
 
     void load();
@@ -90,14 +71,11 @@ export default function HomeScreen({
 
   const monthTotal = sumBy(expenses, (expense) => expense.amount);
   const medicalTotal = sumBy(medicals, (medical) => medical.amount);
+  const fixedTotal = sumBy(fixedRecords, (record) => record.actualAmount);
   const recordCount = expenses.length + medicals.length;
   const activeDays = new Set([...expenses.map((expense) => expense.date), ...medicals.map((medical) => medical.paymentDate)]).size;
-  const pendingOcrCount =
-    expenses.filter((expense) => expense.receiptImageData && !expense.isChecked).length +
-    medicals.filter((medical) => medical.receiptImageData && !medical.isChecked).length;
-  const fixedTotal = sumBy(fixedRecords, (record) => record.actualAmount);
   const unconfirmedFixedCount = fixedRecords.filter((record) => !record.isConfirmed).length;
-  const topCategories = categories
+  const leadingCategory = categories
     .map((category) => ({
       ...category,
       total: sumBy(
@@ -106,11 +84,7 @@ export default function HomeScreen({
       ),
     }))
     .filter((category) => category.total > 0)
-    .sort((left, right) => right.total - left.total)
-    .slice(0, 4);
-
-  const productComparisons = useMemo(() => buildProductComparisons(observations), [observations]);
-  const storeSummaries = useMemo(() => buildStoreSummaries(productComparisons), [productComparisons]);
+    .sort((left, right) => right.total - left.total)[0];
 
   const recentRecords = useMemo<RecentRecord[]>(() => {
     const categoryMap = new Map(categories.map((category) => [category.id, category]));
@@ -125,7 +99,7 @@ export default function HomeScreen({
           date: expense.date,
           amount: expense.amount,
           title: expense.shopName || expense.memo || "支出",
-          subtitle: `${member?.shortName ?? "未設定"} / ${category?.name ?? "カテゴリ未設定"}`,
+          subtitle: `${member?.shortName ?? "未設定"} / ${category?.name ?? "未設定"}`,
           color: category?.colorHex ?? "#8f8577",
           icon: category?.icon ?? "ReceiptText",
         };
@@ -144,13 +118,9 @@ export default function HomeScreen({
       }),
     ]
       .sort((left, right) => right.date.localeCompare(left.date))
-      .slice(0, 6);
+      .slice(0, 5);
   }, [categories, expenses, medicals, members]);
 
-  const topStore = storeSummaries[0];
-  const topDeal = productComparisons[0];
-  const fixedTemplateMap = new Map(fixedTemplates.map((template) => [template.id, template.name]));
-  const leadingCategory = topCategories[0];
   const memberOptions = [{ id: "all", shortName: "全員" }, ...members];
 
   const goMonth = (delta: number) => {
@@ -168,9 +138,8 @@ export default function HomeScreen({
       <section className="planner-card">
         <div className="planner-home-top">
           <div className="min-w-0 flex-1">
-            <p className="planner-kicker">NOW</p>
-            <h1 className="planner-home-title">{formatMonthYear(year, month)}</h1>
-            <p className="planner-home-caption">対象者を切り替えてから、今月の数字と導線をまとめて確認します。</p>
+            <p className="planner-kicker">MONTH</p>
+            <h2 className="planner-home-title">{formatMonthYear(year, month)}</h2>
           </div>
           <div className="planner-month-switcher shrink-0">
             <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
@@ -202,65 +171,28 @@ export default function HomeScreen({
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2.5">
-          <HomeSummaryCard
-            label="支出合計"
-            value={formatYen(monthTotal)}
-            tone="accent"
-            sideTop={`${recordCount} 件`}
-            sideBottom={leadingCategory ? `最多 ${leadingCategory.name}` : "記録なし"}
-            onClick={onOpenList}
-          />
-          <HomeSummaryCard
-            label="医療費"
-            value={formatYen(medicalTotal)}
-            tone="medical"
-            sideTop={`${medicals.length} 件`}
-            sideBottom={medicals.length > 0 ? "補填前合計" : "未記録"}
-            onClick={onOpenMedicalDashboard}
-          />
-          <HomeSummaryCard
-            label="動きのある日"
-            value={`${activeDays}日`}
-            sideTop={`OCR待ち ${pendingOcrCount}`}
-            sideBottom={activeDays > 0 ? "入力のある日数" : "まだ動きなし"}
-            onClick={onOpenCalendar}
-          />
-          <HomeSummaryCard
-            label="固定費"
-            value={formatYen(fixedTotal)}
-            sideTop={unconfirmedFixedCount > 0 ? `未確認 ${unconfirmedFixedCount}` : "確認済み"}
-            sideBottom={fixedRecords.length > 0 ? `${fixedRecords.length} 件` : "テンプレート待ち"}
-            onClick={onOpenList}
-          />
+          <HomeSummaryCard label="支出" value={formatYen(monthTotal)} sideTop={`${recordCount}件`} sideBottom={leadingCategory ? leadingCategory.name : "未記録"} onClick={onOpenList} />
+          <HomeSummaryCard label="医療費" value={formatYen(medicalTotal)} sideTop={`${medicals.length}件`} sideBottom="明細" tone="medical" onClick={onOpenMedicalDashboard} />
+          <HomeSummaryCard label="記録日" value={`${activeDays}日`} sideTop="日別確認" sideBottom="カレンダー" onClick={onOpenCalendar} />
+          <HomeSummaryCard label="固定費" value={formatYen(fixedTotal)} sideTop={`${fixedRecords.length}件`} sideBottom={unconfirmedFixedCount > 0 ? `未確認 ${unconfirmedFixedCount}` : "確認済み"} onClick={onOpenList} />
         </div>
       </section>
 
       <section className="planner-card">
-        <SectionHeader kicker="QUICK ACTION" title="すぐ使う入口" description="追加と確認の主要動線だけを短く並べます。" />
+        <SectionHeader kicker="PORTAL" title="入口" />
         <div className="mt-4 grid grid-cols-2 gap-2.5">
-          <ActionCard title="手入力" description="支出を記録" icon={<NotebookPen size={18} />} tone="accent" onClick={() => onOpenExpenseManual()} />
-          <ActionCard title="レシート" description="OCR で追加" icon={<ScanText size={18} />} tone="accent" onClick={() => onOpenExpenseReceipt()} />
-          <ActionCard title="カレンダー" description="日別に確認" icon={<List size={18} />} tone="soft" onClick={onOpenCalendar} />
-          <ActionCard title="医療費" description="集計を見る" icon={<HeartPulse size={18} />} tone="medical" onClick={onOpenMedicalDashboard} />
-          <ActionCard title="比較" description="店ごとに確認" icon={<Store size={18} />} tone="accent" onClick={onOpenCompare} />
-          <ActionCard title="医療追加" description="通院分を記録" icon={<HeartPulse size={18} />} tone="medical" onClick={() => onOpenMedicalManual()} />
+          <ActionCard title="支出を追加" icon={<NotebookPen size={18} />} tone="accent" onClick={() => onOpenExpenseManual()} />
+          <ActionCard title="医療費を追加" icon={<HeartPulse size={18} />} tone="medical" onClick={() => onOpenMedicalManual()} />
+          <ActionCard title="記録一覧" icon={<List size={18} />} tone="soft" onClick={onOpenList} />
+          <ActionCard title="カレンダー" icon={<List size={18} />} tone="soft" onClick={onOpenCalendar} />
         </div>
       </section>
 
       <section className="planner-card">
-        <SectionHeader
-          kicker="RECENT"
-          title="最近の記録"
-          description="直近の流れを短い行で確認できます。"
-          action={
-            <button type="button" onClick={onOpenList} className="planner-link-row planner-link-row-compact">
-              記録一覧へ
-            </button>
-          }
-        />
+        <SectionHeader kicker="RECENT" title="最近の記録" action={<button type="button" onClick={onOpenList} className="planner-link-row planner-link-row-compact">一覧へ</button>} />
         <div className="mt-4 space-y-3">
           {recentRecords.length === 0 ? (
-            <EmptyState title="まだ記録がありません" message="今月の記録を追加すると、ここに最近の支出と医療費が並びます。" />
+            <EmptyState title="記録がありません" message="支出または医療費を追加してください。" />
           ) : (
             recentRecords.map((record) => {
               const Icon = resolveIcon(record.icon, "ReceiptText");
@@ -283,127 +215,27 @@ export default function HomeScreen({
         </div>
       </section>
 
-      <div className="grid gap-3 lg:grid-cols-[1.15fr_0.95fr]">
-        <section className="planner-card">
-          <SectionHeader kicker="INSIGHT" title="補助情報" description="医療費、固定費、OCR確認待ちを短く整理します。" />
-          <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-            <button type="button" onClick={onOpenMedicalDashboard} className="planner-note-card planner-note-card-compact planner-note-button">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="planner-kicker">今月の医療費</p>
-                  <p className="mt-1 text-lg font-semibold text-[var(--planner-danger)]">{formatYen(medicalTotal)}</p>
-                </div>
-                {medicalTotal > 0 ? <DataBadge label={`${medicals.length} 件`} tone="medical" /> : <DataBadge label="未記録" />}
-              </div>
-              <p className="mt-2 text-xs text-[var(--planner-subtle)]">支出とは分けて確認できます。</p>
-            </button>
-
-            <button type="button" onClick={onOpenList} className="planner-note-card planner-note-card-compact planner-note-button">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="planner-kicker">固定費</p>
-                  <p className="mt-1 text-lg font-semibold">{formatYen(fixedTotal)}</p>
-                </div>
-                {unconfirmedFixedCount > 0 ? <DataBadge label={`未確認 ${unconfirmedFixedCount}`} tone="warning" /> : <DataBadge label="確認済み" />}
-              </div>
-              <p className="mt-2 text-xs text-[var(--planner-subtle)]">
-                {fixedRecords
-                  .slice(0, 2)
-                  .map((record) => fixedTemplateMap.get(record.templateId ?? "") ?? "固定費")
-                  .join(" / ") || "固定費テンプレートを設定すると今月の定例支出を一覧できます。"}
-              </p>
-            </button>
-
-            <button type="button" onClick={onOpenList} className="planner-note-card planner-note-card-compact planner-note-button">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="planner-kicker">OCR 未確認</p>
-                  <p className="mt-1 text-lg font-semibold">{pendingOcrCount} 件</p>
-                </div>
-                {pendingOcrCount > 0 ? <DataBadge label="チェック推奨" tone="warning" /> : <DataBadge label="0 件" />}
-              </div>
-              <p className="mt-2 text-xs text-[var(--planner-subtle)]">一覧画面からまとめて確認できます。</p>
-            </button>
-          </div>
-        </section>
-
-        <section className="planner-card">
-          <SectionHeader kicker="COMPARE" title="比較の要約" description="まずは各スーパーの強みから見せます。" />
-          <div className="mt-4 space-y-3">
-            {topStore ? (
-              <button type="button" onClick={onOpenCompare} className="planner-note-card planner-note-button">
-                <p className="planner-kicker">得意な店</p>
-                <p className="mt-2 text-lg font-semibold">{topStore.shopName}</p>
-                <p className="mt-2 text-sm text-[var(--planner-subtle)]">
-                  強い商品 {topStore.strongWinCount} 件 / 勝ち筋 {topStore.winCount} 件 / 平均 {compactYen(topStore.averageWinningPrice)}
-                </p>
-              </button>
-            ) : (
-              <EmptyState title="比較データがまだ少ないです" message="レシートOCRで商品行を読み込むと、各店の得意商品を自動で整理します。" />
-            )}
-
-            {topDeal ? (
-              <button type="button" onClick={onOpenCompare} className="planner-note-card planner-note-button">
-                <p className="planner-kicker">最安メモ</p>
-                <p className="mt-2 text-lg font-semibold">{topDeal.itemLabel}</p>
-                <p className="mt-2 text-sm text-[var(--planner-subtle)]">
-                  {topDeal.best.shopName} が最安。{topDeal.priceGap ? `${formatYen(topDeal.priceGap)} 差` : "比較対象は参考値"}
-                </p>
-                <p className="mt-2 text-base font-semibold text-[var(--planner-accent)]">
-                  {topDeal.comparisonBasis === "unit" && topDeal.best.quantityUnit
-                    ? `${topDeal.best.comparisonPrice.toLocaleString("ja-JP")} / ${topDeal.best.quantityUnit}`
-                    : formatYen(topDeal.best.comparisonPrice)}
-                </p>
-              </button>
-            ) : null}
-
-            <button type="button" onClick={onOpenCompare} className="planner-link-row">
-              比較画面を開く
-            </button>
-          </div>
-        </section>
-      </div>
-
       <section className="planner-card">
-        <SectionHeader kicker="HOUSEHOLD" title="今月の家計" description="カテゴリ別の支出を横幅を使って短く見せます。" />
+        <SectionHeader kicker="FIXED" title="今月の固定費" action={<DataBadge label={`${fixedRecords.length}件`} />} />
         <div className="mt-4 space-y-3">
-          {topCategories.length === 0 ? (
-            <EmptyState title="まだ記録がありません" message="手入力またはレシート入力から、まずは今月の支出を追加してください。" />
+          {fixedRecords.length === 0 ? (
+            <EmptyState title="固定費はありません" message="固定費テンプレートを確認してください。" />
           ) : (
-            topCategories.map((category) => {
-              const Icon = resolveIcon(category.icon, "ReceiptText");
-              const ratio = monthTotal > 0 ? Math.min(100, Math.round((category.total / monthTotal) * 100)) : 0;
-              return (
-                <div key={category.id} className="planner-summary-row">
-                  <div className="planner-summary-icon" style={{ backgroundColor: `${category.colorHex}18`, color: category.colorHex }}>
-                    <Icon size={16} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="truncate text-sm font-semibold">{category.name}</p>
-                      <p className="text-sm font-semibold">{formatYen(category.total)}</p>
-                    </div>
-                    <div className="mt-2 flex items-center gap-3">
-                      <div className="planner-bar flex-1">
-                        <span className="planner-bar-fill" style={{ width: `${ratio}%`, backgroundColor: category.colorHex }} />
-                      </div>
-                      <span className="shrink-0 text-xs text-[var(--planner-subtle)]">{ratio}%</span>
-                    </div>
-                  </div>
+            fixedRecords.map((record) => (
+              <button key={record.id} type="button" onClick={onOpenList} className="planner-summary-row planner-summary-row-button">
+                <div className="planner-summary-icon bg-[rgba(72,108,165,0.12)] text-[var(--planner-accent)]">
+                  <NotebookPen size={16} />
                 </div>
-              );
-            })
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="truncate text-sm font-semibold">{record.templateName}</p>
+                    <p className="shrink-0 text-sm font-semibold">{formatYen(record.actualAmount)}</p>
+                  </div>
+                  <p className="text-xs text-[var(--planner-subtle)]">{record.isConfirmed ? "確認済み" : "未確認"}</p>
+                </div>
+              </button>
+            ))
           )}
-        </div>
-      </section>
-
-      <section className="planner-card">
-        <SectionHeader kicker="SHORTCUT" title="入力導線" description="日付から入るか、入力方式から入るかを選べます。" />
-        <div className="mt-4 grid grid-cols-2 gap-2.5">
-          <ActionCard title="支出を手入力" description="今日の日付で追加" icon={<NotebookPen size={18} />} tone="accent" onClick={() => onOpenExpenseManual()} />
-          <ActionCard title="レシートを読む" description="商品行を確認" icon={<ReceiptText size={18} />} tone="accent" onClick={() => onOpenExpenseReceipt()} />
-          <ActionCard title="医療費を手入力" description="家族と補填額を整理" icon={<HeartPulse size={18} />} tone="medical" onClick={() => onOpenMedicalManual()} />
-          <ActionCard title="医療OCR" description="病院名候補を反映" icon={<ScanText size={18} />} tone="medical" onClick={() => onOpenMedicalReceipt()} />
         </div>
       </section>
     </div>

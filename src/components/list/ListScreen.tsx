@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronLeft, ChevronRight, Circle, HeartPulse, Trash2 } from "lucide-react";
 import { db, deleteExpenseCascade } from "@/db/database";
-import { DataBadge, EmptyState, SectionHeader } from "@/components/ui/PlannerUI";
+import { EmptyState, SectionHeader } from "@/components/ui/PlannerUI";
 import { addMonths, formatDateDisplay, formatMonthYear, formatYen, getMonthRange } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
 import type { Category, Expense, MedicalExpense, Member } from "@/types";
 
-type Filter = "all" | "unchecked" | "medical" | "receipt";
+type Filter = "all" | "unchecked" | "medical";
 
 interface DayGroup {
   date: string;
@@ -19,7 +19,6 @@ const FILTER_LABELS: Record<Filter, string> = {
   all: "すべて",
   unchecked: "未確認",
   medical: "医療費",
-  receipt: "画像あり",
 };
 
 export default function ListScreen() {
@@ -52,20 +51,15 @@ export default function ListScreen() {
   }, [load]);
 
   const uncheckedCount = expenses.filter((expense) => !expense.isChecked).length + medicals.filter((medical) => !medical.isChecked).length;
-  const imageCount = expenses.filter((expense) => expense.receiptImageData).length + medicals.filter((medical) => medical.receiptImageData).length;
-
   const filteredExpenses = expenses.filter((expense) => {
     if (filter === "unchecked") return !expense.isChecked;
     if (filter === "medical") return false;
-    if (filter === "receipt") return Boolean(expense.receiptImageData);
     return true;
   });
-
   const filteredMedicals = medicals.filter((medical) => {
     if (filter === "unchecked") return !medical.isChecked;
     if (filter === "medical") return true;
-    if (filter === "receipt") return Boolean(medical.receiptImageData);
-    return filter === "all";
+    return true;
   });
 
   const dayGroups = useMemo<DayGroup[]>(() => {
@@ -137,11 +131,7 @@ export default function ListScreen() {
     <div className="planner-page">
       <section className="planner-card">
         <div className="planner-inline-header">
-          <div className="min-w-0">
-            <p className="planner-kicker">MONTH</p>
-            <h2 className="planner-section-title">{formatMonthYear(year, month)}</h2>
-            <p className="planner-section-description">条件を切り替えながら今月の記録をまとめて確認します。</p>
-          </div>
+          <h2 className="planner-section-title">{formatMonthYear(year, month)}</h2>
           <div className="planner-month-switcher shrink-0">
             <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
               <ChevronLeft size={16} />
@@ -169,21 +159,20 @@ export default function ListScreen() {
             </button>
           ))}
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          <CompactOverviewStat label="合計" value={`${expenses.length + medicals.length}件`} note="今月" />
-          <CompactOverviewStat label="未確認" value={`${uncheckedCount}件`} note="チェック待ち" />
-          <CompactOverviewStat label="画像" value={`${imageCount}件`} note="OCRつき" />
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <CompactOverviewStat label="合計" value={`${expenses.length + medicals.length}件`} />
+          <CompactOverviewStat label="未確認" value={`${uncheckedCount}件`} />
         </div>
       </section>
 
       {dayGroups.length === 0 ? (
         <section className="planner-card">
-          <EmptyState title="該当する記録がありません" message="フィルタ条件に合う記録がないか、まだ今月の入力がありません。" />
+          <EmptyState title="記録がありません" message="表示できる記録がありません。" />
         </section>
       ) : (
         dayGroups.map((group) => (
           <section key={group.date} className="planner-card">
-            <SectionHeader kicker={formatDateDisplay(group.date)} title={`合計 ${formatYen(group.total)}`} description={`${group.expenses.length + group.medicals.length} 件`} />
+            <SectionHeader kicker={formatDateDisplay(group.date)} title={`合計 ${formatYen(group.total)}`} />
             <div className="mt-4 space-y-3">
               {group.expenses.map((expense) => {
                 const category = categoryMap.get(expense.categoryId ?? "");
@@ -198,15 +187,14 @@ export default function ListScreen() {
                       <Icon size={16} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-between gap-3">
                         <p className="truncate text-sm font-semibold">{expense.shopName || expense.memo || "支出"}</p>
-                        {expense.receiptImageData ? <DataBadge label="画像" /> : null}
+                        <p className="shrink-0 text-sm font-semibold">{formatYen(expense.amount)}</p>
                       </div>
                       <p className="truncate text-xs text-[var(--planner-subtle)]">
                         {category?.name || "カテゴリ未設定"} / {member?.shortName || "未設定"}
                       </p>
                     </div>
-                    <p className="text-sm font-semibold">{formatYen(expense.amount)}</p>
                     <button type="button" onClick={() => removeExpense(expense.id)} className="planner-icon-button" aria-label="支出を削除">
                       <Trash2 size={14} />
                     </button>
@@ -223,15 +211,14 @@ export default function ListScreen() {
                     <HeartPulse size={16} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between gap-3">
                       <p className="truncate text-sm font-semibold">{medical.hospitalName || "医療費"}</p>
-                      {medical.receiptImageData ? <DataBadge label="画像" tone="medical" /> : null}
+                      <p className="shrink-0 text-sm font-semibold">{formatYen(medical.amount)}</p>
                     </div>
                     <p className="truncate text-xs text-[var(--planner-subtle)]">
                       {medical.isTransportation ? "通院交通費" : medical.medicalType} / {memberMap.get(medical.memberId ?? "")?.shortName || "未設定"}
                     </p>
                   </div>
-                  <p className="text-sm font-semibold">{formatYen(medical.amount)}</p>
                   <button type="button" onClick={() => removeMedical(medical.id)} className="planner-icon-button" aria-label="医療費を削除">
                     <Trash2 size={14} />
                   </button>
@@ -245,12 +232,11 @@ export default function ListScreen() {
   );
 }
 
-function CompactOverviewStat({ label, value, note }: { label: string; value: string; note: string }) {
+function CompactOverviewStat({ label, value }: { label: string; value: string }) {
   return (
     <article className="planner-compact-stat">
       <p className="planner-compact-stat-label">{label}</p>
       <p className="planner-compact-stat-value">{value}</p>
-      <p className="planner-compact-stat-note">{note}</p>
     </article>
   );
 }

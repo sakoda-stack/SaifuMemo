@@ -86,7 +86,7 @@ export function ActionCard({
   onClick,
 }: {
   title: string;
-  description: string;
+  description?: string;
   icon: ReactNode;
   tone?: "default" | "accent" | "medical" | "soft";
   onClick?: () => void;
@@ -96,7 +96,7 @@ export function ActionCard({
       <span className={`planner-action-icon planner-action-icon-${tone}`}>{icon}</span>
       <span className="min-w-0 flex-1">
         <strong className="planner-action-title">{title}</strong>
-        <span className="planner-action-note">{description}</span>
+        {description ? <span className="planner-action-note">{description}</span> : null}
       </span>
     </>
   );

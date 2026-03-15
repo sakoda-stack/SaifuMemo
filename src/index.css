@@ -79,8 +79,7 @@ button {
 }
 
 .planner-app-bar {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 20;
   display: flex;
   align-items: flex-start;
@@ -480,11 +479,20 @@ button {
 .planner-field {
   width: 100%;
   min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--planner-line);
   border-radius: 12px;
   background: #fff;
   color: var(--planner-text);
   padding: 10px 12px;
+}
+
+.planner-field[type="date"] {
+  appearance: none;
+}
+
+.planner-field::-webkit-date-and-time-value {
+  text-align: left;
 }
 
 .planner-category-chip {
@@ -667,6 +675,10 @@ button {
   gap: 12px;
 }
 
+.planner-inline-header-bottom {
+  margin-bottom: 10px;
+}
+
 .planner-month-switcher {
   display: flex;
   gap: 8px;
@@ -829,7 +841,7 @@ button {
 }
 
 .planner-calendar-tile {
-  min-height: 96px;
+  min-height: 84px;
   border: 0;
   background: var(--planner-paper);
   padding: 8px;
@@ -872,6 +884,20 @@ button {
   background: rgba(184, 78, 65, 0.12);
   color: var(--planner-danger);
   border-color: rgba(184, 78, 65, 0.2);
+}
+
+.planner-day-modal {
+  position: absolute;
+  right: 8px;
+  bottom: max(8px, env(safe-area-inset-bottom));
+  left: 8px;
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 18px;
+  background: var(--planner-paper);
+  box-shadow: var(--planner-shadow);
+  padding: 14px;
 }
 
 .planner-choice-option {
@@ -933,12 +959,20 @@ button {
   }
 
   .planner-calendar-tile {
-    min-height: 82px;
+    min-height: 74px;
     padding: 6px;
   }
 
   .planner-modal-sheet {
     inset: 0;
     border-radius: 0;
+  }
+
+  .planner-day-modal {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    max-height: 78vh;
+    border-radius: 18px 18px 0 0;
   }
 }

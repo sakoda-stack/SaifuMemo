@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { db, generateFixedRecords, seedIfNeeded } from "@/db/database";
+import { db, generateFixedRecords, getMonthlyFixedRecords, seedIfNeeded } from "@/db/database";
 
 describe("seedIfNeeded", () => {
   beforeEach(async () => {
@@ -52,5 +52,17 @@ describe("seedIfNeeded", () => {
     const nextCount = await db.fixedRecords.count();
 
     expect(nextCount).toBe(initialCount);
+  });
+
+  it("filters out monthly fixed records that no longer have an active template", async () => {
+    await seedIfNeeded();
+    const today = new Date();
+    const templates = await db.fixedTemplates.toArray();
+    const template = templates[0];
+
+    await db.fixedTemplates.update(template.id, { isActive: false });
+    const visibleRecords = await getMonthlyFixedRecords(today.getFullYear(), today.getMonth() + 1);
+
+    expect(visibleRecords.some((record) => record.templateId === template.id)).toBe(false);
   });
 });

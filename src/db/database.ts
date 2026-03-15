@@ -208,6 +208,29 @@ export async function generateFixedRecords(): Promise<void> {
   }
 }
 
+export async function getMonthlyFixedRecords(year: number, month: number) {
+  const [templates, records] = await Promise.all([
+    db.fixedTemplates.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
+    db.fixedRecords.where("[year+month]").equals([year, month]).toArray(),
+  ]);
+  const templateMap = new Map(templates.map((template) => [template.id, template]));
+
+  return records
+    .map((record) => {
+      const template = record.templateId ? templateMap.get(record.templateId) : undefined;
+      if (!template) {
+        return null;
+      }
+
+      return {
+        ...record,
+        templateName: template.name,
+      };
+    })
+    .filter((record): record is FixedExpenseRecord & { templateName: string } => record !== null)
+    .sort((left, right) => left.templateName.localeCompare(right.templateName, "ja"));
+}
+
 export async function replaceReceiptItemObservations(
   expenseId: string,
   observations: Omit<ReceiptItemObservation, "id" | "createdAt" | "expenseId">[],

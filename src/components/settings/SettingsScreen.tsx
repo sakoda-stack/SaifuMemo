@@ -1,13 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, Camera, Edit3, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Edit3, Plus, Trash2 } from "lucide-react";
 import { v4 as uuid } from "uuid";
-import { db } from "@/db/database";
-import { ActionCard, DataBadge, EmptyState, ScreenIntro, SectionHeader } from "@/components/ui/PlannerUI";
+import { db, getMonthlyFixedRecords } from "@/db/database";
+import { ActionCard, EmptyState, ScreenIntro, SectionHeader } from "@/components/ui/PlannerUI";
 import { CATEGORY_COLOR_OPTIONS, CATEGORY_ICON_OPTIONS, resolveIcon } from "@/utils/icons";
 import { formatYen } from "@/utils";
-import type { Category, Expense, FixedExpenseRecord, FixedExpenseTemplate, MedicalExpense, Member, ShopMaster } from "@/types";
+import type { Category, FixedExpenseRecord, FixedExpenseTemplate, Member, ShopMaster } from "@/types";
 
-type Section = "menu" | "members" | "shops" | "hospitals" | "categories" | "fixed" | "checklist";
+type Section = "menu" | "members" | "shops" | "hospitals" | "categories" | "fixed";
 
 export default function SettingsScreen() {
   const [section, setSection] = useState<Section>("menu");
@@ -27,33 +27,24 @@ export default function SettingsScreen() {
   if (section === "fixed") {
     return <FixedManager onBack={() => setSection("menu")} />;
   }
-  if (section === "checklist") {
-    return <ReceiptChecklist onBack={() => setSection("menu")} />;
-  }
-
   return (
     <div className="planner-page">
-      <ScreenIntro
-        kicker="SETTINGS"
-        title="管理メニュー"
-        description="1 項目 1 役割で整理し、家族・店舗・カテゴリ・固定費・OCR確認に分けました。"
-      />
+      <ScreenIntro kicker="SETTINGS" title="管理メニュー" />
 
       <section className="planner-card">
-        <SectionHeader kicker="MASTER" title="マスタ管理" description="家計の基礎データを整えます。" />
+        <SectionHeader kicker="MASTER" title="マスタ管理" />
         <div className="mt-4 grid gap-3">
-          <ActionCard title="家族メンバー" description="対象者の追加・編集・停止" icon={<Plus size={18} />} onClick={() => setSection("members")} />
-          <ActionCard title="店舗マスタ" description="スーパーや一般店舗を管理" icon={<Plus size={18} />} onClick={() => setSection("shops")} />
-          <ActionCard title="病院・薬局マスタ" description="医療費入力で使う施設を管理" icon={<Plus size={18} />} onClick={() => setSection("hospitals")} />
-          <ActionCard title="カテゴリ" description="カテゴリ名、色、アイコンを整理" icon={<Edit3 size={18} />} onClick={() => setSection("categories")} />
+          <ActionCard title="家族メンバー" icon={<Plus size={18} />} onClick={() => setSection("members")} />
+          <ActionCard title="店舗マスタ" icon={<Plus size={18} />} onClick={() => setSection("shops")} />
+          <ActionCard title="病院・薬局マスタ" icon={<Plus size={18} />} onClick={() => setSection("hospitals")} />
+          <ActionCard title="カテゴリ" icon={<Edit3 size={18} />} onClick={() => setSection("categories")} />
         </div>
       </section>
 
       <section className="planner-card">
-        <SectionHeader kicker="FLOW" title="入力確認" description="月次の定例支出とレシート確認を分けて扱います。" />
+        <SectionHeader kicker="FLOW" title="入力確認" />
         <div className="mt-4 grid gap-3">
-          <ActionCard title="固定費テンプレート" description="毎月の定例支出を管理" icon={<Edit3 size={18} />} onClick={() => setSection("fixed")} />
-          <ActionCard title="レシート確認" description="画像付き記録のチェック状態を整理" icon={<Camera size={18} />} onClick={() => setSection("checklist")} />
+          <ActionCard title="固定費テンプレート" icon={<Edit3 size={18} />} onClick={() => setSection("fixed")} />
         </div>
       </section>
     </div>
@@ -394,7 +385,7 @@ function FixedManager({ onBack }: { onBack: () => void }) {
   const load = async () => {
     const [templateRows, recordRows] = await Promise.all([
       db.fixedTemplates.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
-      db.fixedRecords.where("[year+month]").equals([today.getFullYear(), today.getMonth() + 1]).toArray(),
+      getMonthlyFixedRecords(today.getFullYear(), today.getMonth() + 1),
     ]);
     setTemplates(templateRows);
     setMonthRecords(recordRows);
@@ -491,141 +482,6 @@ function FixedManager({ onBack }: { onBack: () => void }) {
   );
 }
 
-function ReceiptChecklist({ onBack }: { onBack: () => void }) {
-  const [items, setItems] = useState<Array<ChecklistItem>>([]);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-
-  const load = async () => {
-    const [expenses, medicals, members, categories] = await Promise.all([
-      db.expenses.toArray(),
-      db.medicalExpenses.toArray(),
-      db.members.toArray(),
-      db.categories.toArray(),
-    ]);
-
-    const memberMap = new Map(members.map((member) => [member.id, member.shortName]));
-    const categoryMap = new Map(categories.map((category) => [category.id, category.name]));
-
-    const rows: ChecklistItem[] = [
-      ...expenses
-        .filter((expense) => expense.receiptImageData)
-        .map((expense): ChecklistItem => ({
-          id: expense.id,
-          kind: "expense",
-          date: expense.date,
-          title: expense.shopName || expense.memo || "支出",
-          subtitle: `${memberMap.get(expense.memberId ?? "") || "未設定"} / ${categoryMap.get(expense.categoryId ?? "") || "カテゴリ未設定"}`,
-          amount: expense.amount,
-          checked: expense.isChecked,
-          imageData: expense.receiptImageData,
-        })),
-      ...medicals
-        .filter((medical) => medical.receiptImageData)
-        .map((medical): ChecklistItem => ({
-          id: medical.id,
-          kind: "medical",
-          date: medical.paymentDate,
-          title: medical.hospitalName || "医療費",
-          subtitle: `${memberMap.get(medical.memberId ?? "") || "未設定"} / ${medical.isTransportation ? "通院交通費" : medical.medicalType}`,
-          amount: medical.amount,
-          checked: medical.isChecked,
-          imageData: medical.receiptImageData,
-        })),
-    ].sort((left, right) => right.date.localeCompare(left.date));
-
-    setItems(rows);
-  };
-
-  useEffect(() => {
-    void load();
-  }, []);
-
-  const toggle = async (item: ChecklistItem) => {
-    if (item.kind === "expense") {
-      await db.expenses.update(item.id, { isChecked: !item.checked, updatedAt: new Date() });
-    } else {
-      await db.medicalExpenses.update(item.id, { isChecked: !item.checked });
-    }
-    await load();
-  };
-
-  const pending = items.filter((item) => !item.checked);
-  const completed = items.filter((item) => item.checked);
-
-  return (
-    <SettingsLayout title="レシート確認" onBack={onBack}>
-      <section className="planner-card">
-        <SectionHeader kicker="STATUS" title="確認状況" />
-        <div className="mt-4 flex flex-wrap gap-2">
-          <DataBadge label={`未確認 ${pending.length}`} tone="warning" />
-          <DataBadge label={`確認済み ${completed.length}`} tone="accent" />
-        </div>
-      </section>
-
-      <ChecklistGroup title="未確認" items={pending} onToggle={toggle} onPreview={setPreviewImage} />
-      <ChecklistGroup title="確認済み" items={completed} onToggle={toggle} onPreview={setPreviewImage} />
-
-      {previewImage ? (
-        <div className="planner-overlay" onClick={() => setPreviewImage(null)}>
-          <div className="planner-overlay-backdrop" />
-          <div className="relative z-[70] mx-4">
-            <img src={previewImage} alt="receipt preview" className="max-h-[84vh] max-w-full rounded-[18px] border border-white/20" />
-          </div>
-        </div>
-      ) : null}
-    </SettingsLayout>
-  );
-}
-
-function ChecklistGroup({
-  title,
-  items,
-  onToggle,
-  onPreview,
-}: {
-  title: string;
-  items: ChecklistItem[];
-  onToggle: (item: ChecklistItem) => void;
-  onPreview: (image: string) => void;
-}) {
-  return (
-    <section className="planner-card">
-      <SectionHeader kicker="CHECK" title={title} />
-      <div className="mt-4 space-y-3">
-        {items.length === 0 ? (
-          <EmptyState title="対象がありません" message="この状態のレシート画像付き記録はありません。" />
-        ) : (
-          items.map((item) => (
-            <button key={`${item.kind}-${item.id}`} type="button" onClick={() => onToggle(item)} className="planner-list-row w-full text-left">
-              {item.imageData ? (
-                <img
-                  src={item.imageData}
-                  alt="receipt"
-                  className="h-14 w-14 rounded-[12px] border border-[var(--planner-line)] object-cover"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onPreview(item.imageData!);
-                  }}
-                />
-              ) : (
-                <div className="h-14 w-14 rounded-[12px] bg-[var(--planner-soft)]" />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">{item.title}</p>
-                <p className="truncate text-xs text-[var(--planner-subtle)]">
-                  {item.date} / {item.subtitle}
-                </p>
-                <p className="text-sm font-semibold">{formatYen(item.amount)}</p>
-              </div>
-              <DataBadge label={item.checked ? "確認済み" : "未確認"} tone={item.checked ? "accent" : "warning"} />
-            </button>
-          ))
-        )}
-      </div>
-    </section>
-  );
-}
-
 function SettingsLayout({
   title,
   onBack,
@@ -716,15 +572,4 @@ function RowActions({
       </button>
     </div>
   );
-}
-
-interface ChecklistItem {
-  amount: number;
-  checked: boolean;
-  date: string;
-  id: string;
-  imageData?: Expense["receiptImageData"] | MedicalExpense["receiptImageData"];
-  kind: "expense" | "medical";
-  subtitle: string;
-  title: string;
 }

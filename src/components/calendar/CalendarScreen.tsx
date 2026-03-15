@@ -1,15 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, HeartPulse, NotebookPen, ScanText } from "lucide-react";
+import { ChevronLeft, ChevronRight, HeartPulse, NotebookPen } from "lucide-react";
 import { db } from "@/db/database";
-import { DataBadge, EmptyState, SectionHeader } from "@/components/ui/PlannerUI";
+import { DataBadge, EmptyState } from "@/components/ui/PlannerUI";
 import { addMonths, compactYen, formatDateDisplay, formatMonthYear, formatYen, getMonthRange, toDateString } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
 
 interface CalendarScreenProps {
   onAddExpense: (date?: string) => void;
   onAddMedical: (date?: string) => void;
-  onAddExpenseReceipt: (date?: string) => void;
-  onAddMedicalReceipt: (date?: string) => void;
 }
 
 interface CalendarEntry {
@@ -31,17 +29,12 @@ interface DaySummary {
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"] as const;
 
-export default function CalendarScreen({
-  onAddExpense,
-  onAddMedical,
-  onAddExpenseReceipt,
-  onAddMedicalReceipt,
-}: CalendarScreenProps) {
+export default function CalendarScreen({ onAddExpense, onAddMedical }: CalendarScreenProps) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [summaries, setSummaries] = useState<Record<string, DaySummary>>({});
-  const [selectedDate, setSelectedDate] = useState(toDateString(today));
+  const [activeDate, setActiveDate] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -51,7 +44,6 @@ export default function CalendarScreen({
         db.expenses.where("date").between(start, end, true, false).toArray(),
         db.medicalExpenses.where("paymentDate").between(start, end, true, false).toArray(),
       ]);
-
       const categoryMap = new Map(categories.map((category) => [category.id, category]));
       const nextSummaries: Record<string, DaySummary> = {};
 
@@ -70,7 +62,7 @@ export default function CalendarScreen({
           date: expense.date,
           amount: expense.amount,
           title: expense.shopName || expense.memo || "支出",
-          subtitle: category?.name || "カテゴリ未設定",
+          subtitle: category?.name || "未設定",
           icon: category?.icon || "ReceiptText",
           color: category?.colorHex || "#7b7267",
         });
@@ -94,12 +86,12 @@ export default function CalendarScreen({
       });
 
       setSummaries(nextSummaries);
-      setSelectedDate((current) => {
-        if (current.startsWith(`${year}-${String(month).padStart(2, "0")}`)) {
+      setActiveDate((current) => {
+        if (current && current.startsWith(`${year}-${String(month).padStart(2, "0")}`)) {
           return current;
         }
 
-        return Object.keys(nextSummaries).sort()[0] ?? `${year}-${String(month).padStart(2, "0")}-01`;
+        return null;
       });
     };
 
@@ -107,10 +99,8 @@ export default function CalendarScreen({
   }, [month, year]);
 
   const calendarCells = useMemo(() => buildCalendarCells(year, month), [month, year]);
-  const selectedSummary = summaries[selectedDate];
-  const monthEntries = Object.values(summaries).flatMap((summary) => summary.entries);
-  const activeDays = Object.keys(summaries).length;
-  const monthTotal = monthEntries.reduce((total, entry) => total + entry.amount, 0);
+  const selectedDate = activeDate ?? toDateString(today);
+  const selectedSummary = activeDate ? summaries[activeDate] : undefined;
 
   const goMonth = (delta: number) => {
     const next = addMonths(year, month, delta);
@@ -120,17 +110,14 @@ export default function CalendarScreen({
 
     setYear(next.year);
     setMonth(next.month);
+    setActiveDate(null);
   };
 
   return (
     <div className="planner-page">
-      <section className="planner-card">
-        <div className="planner-inline-header">
-          <div className="min-w-0">
-            <p className="planner-kicker">MONTH</p>
-            <h2 className="planner-section-title">{formatMonthYear(year, month)}</h2>
-            <p className="planner-section-description">上のカレンダーを起点に、その日の確認と追加を続けて行えます。</p>
-          </div>
+      <section className="planner-card overflow-hidden">
+        <div className="planner-inline-header planner-inline-header-bottom">
+          <h2 className="planner-section-title">{formatMonthYear(year, month)}</h2>
           <div className="planner-month-switcher shrink-0">
             <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
               <ChevronLeft size={16} />
@@ -146,14 +133,6 @@ export default function CalendarScreen({
             </button>
           </div>
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          <CompactOverviewStat label="合計" value={formatYen(monthTotal)} note="支出+医療費" />
-          <CompactOverviewStat label="件数" value={`${monthEntries.length}件`} note="今月の記録" />
-          <CompactOverviewStat label="動いた日" value={`${activeDays}日`} note="入力あり" />
-        </div>
-      </section>
-
-      <section className="planner-card overflow-hidden">
         <div className="planner-calendar-header">
           {WEEKDAYS.map((weekday) => (
             <div key={weekday} className="planner-calendar-weekday">
@@ -164,16 +143,15 @@ export default function CalendarScreen({
         <div className="planner-calendar-grid">
           {calendarCells.map((cell, index) => {
             const summary = cell.date ? summaries[cell.date] : undefined;
-            const isSelected = cell.date === selectedDate;
+            const isSelected = cell.date === activeDate;
+
             return (
               <button
                 key={`${cell.date ?? "blank"}-${index}`}
                 type="button"
                 disabled={!cell.date}
-                onClick={() => cell.date && setSelectedDate(cell.date)}
-                className={`planner-calendar-tile ${!cell.inMonth ? "planner-calendar-tile-muted" : ""} ${
-                  isSelected ? "planner-calendar-tile-active" : ""
-                }`}
+                onClick={() => cell.date && setActiveDate(cell.date)}
+                className={`planner-calendar-tile ${!cell.inMonth ? "planner-calendar-tile-muted" : ""} ${isSelected ? "planner-calendar-tile-active" : ""}`}
               >
                 {cell.date ? (
                   <>
@@ -182,19 +160,16 @@ export default function CalendarScreen({
                       {summary ? <span className="text-[10px] font-semibold text-[var(--planner-accent)]">{compactYen(summary.total)}</span> : null}
                     </div>
                     {summary ? (
-                      <div className="mt-2 space-y-1">
-                        <div className="flex flex-wrap gap-1">
-                          {summary.entries.slice(0, 2).map((entry) => {
-                            const Icon = resolveIcon(entry.icon, "ReceiptText");
-                            return (
-                              <span key={entry.id} className="planner-mini-stamp" style={{ backgroundColor: `${entry.color}18`, color: entry.color }}>
-                                <Icon size={12} />
-                              </span>
-                            );
-                          })}
-                          {summary.entries.length > 2 ? <span className="planner-mini-count">+{summary.entries.length - 2}</span> : null}
-                        </div>
-                        <p className="truncate text-[10px] text-[var(--planner-subtle)]">{summary.entries[0]?.title}</p>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {summary.entries.slice(0, 2).map((entry) => {
+                          const Icon = resolveIcon(entry.icon, "ReceiptText");
+                          return (
+                            <span key={entry.id} className="planner-mini-stamp" style={{ backgroundColor: `${entry.color}18`, color: entry.color }}>
+                              <Icon size={12} />
+                            </span>
+                          );
+                        })}
+                        {summary.entries.length > 2 ? <span className="planner-mini-count">+{summary.entries.length - 2}</span> : null}
                       </div>
                     ) : null}
                   </>
@@ -205,63 +180,61 @@ export default function CalendarScreen({
         </div>
       </section>
 
-      <section className="planner-card">
-        <SectionHeader kicker="DAY SHEET" title={formatDateDisplay(selectedDate)} description="確認と追加をひとつの場所にまとめています。" />
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <button type="button" onClick={() => onAddExpense(selectedDate)} className="planner-primary-inline planner-primary-inline-accent">
-            <NotebookPen size={16} />
-            支出を手入力
-          </button>
-          <button type="button" onClick={() => onAddExpenseReceipt(selectedDate)} className="planner-secondary-inline">
-            <ScanText size={16} />
-            レシートで支出追加
-          </button>
-          <button type="button" onClick={() => onAddMedical(selectedDate)} className="planner-primary-inline planner-primary-inline-medical">
-            <HeartPulse size={16} />
-            医療費を手入力
-          </button>
-          <button type="button" onClick={() => onAddMedicalReceipt(selectedDate)} className="planner-secondary-inline">
-            <ScanText size={16} />
-            レシートで医療費追加
-          </button>
-        </div>
+      {activeDate ? (
+        <div className="planner-modal">
+          <div className="planner-modal-backdrop" onClick={() => setActiveDate(null)} />
+          <div className="planner-day-modal">
+            <div className="planner-sheet-handle" />
+            <div className="planner-inline-header planner-inline-header-bottom">
+              <div className="min-w-0">
+                <p className="planner-kicker">DAY</p>
+                <h3 className="planner-section-title">{formatDateDisplay(selectedDate)}</h3>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-semibold">{formatYen(selectedSummary?.total ?? 0)}</p>
+                <p className="text-xs text-[var(--planner-subtle)]">{selectedSummary?.entries.length ?? 0}件</p>
+              </div>
+            </div>
 
-        <div className="mt-4 space-y-3">
-          {!selectedSummary ? (
-            <EmptyState title="この日の記録はありません" message="上のボタンから、そのままこの日付で新しい記録を追加できます。" />
-          ) : (
-            selectedSummary.entries.map((entry) => {
-              const Icon = resolveIcon(entry.icon, "ReceiptText");
-              return (
-                <div key={entry.id} className="planner-summary-row">
-                  <div className="planner-summary-icon" style={{ backgroundColor: `${entry.color}18`, color: entry.color }}>
-                    <Icon size={16} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="truncate text-sm font-semibold">{entry.title}</p>
-                      {entry.type === "medical" ? <DataBadge label="医療費" tone="medical" /> : null}
+            <div className="mt-4 grid grid-cols-2 gap-2.5">
+              <button type="button" onClick={() => onAddExpense(selectedDate)} className="planner-primary-inline planner-primary-inline-accent">
+                <NotebookPen size={16} />
+                支出を追加
+              </button>
+              <button type="button" onClick={() => onAddMedical(selectedDate)} className="planner-primary-inline planner-primary-inline-medical">
+                <HeartPulse size={16} />
+                医療費を追加
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {!selectedSummary ? (
+                <EmptyState title="記録がありません" message="この日付で追加できます。" />
+              ) : (
+                selectedSummary.entries.map((entry) => {
+                  const Icon = resolveIcon(entry.icon, "ReceiptText");
+                  return (
+                    <div key={entry.id} className="planner-summary-row">
+                      <div className="planner-summary-icon" style={{ backgroundColor: `${entry.color}18`, color: entry.color }}>
+                        <Icon size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-semibold">{entry.title}</p>
+                          {entry.type === "medical" ? <DataBadge label="医療費" tone="medical" /> : null}
+                        </div>
+                        <p className="truncate text-xs text-[var(--planner-subtle)]">{entry.subtitle}</p>
+                      </div>
+                      <p className="text-sm font-semibold">{formatYen(entry.amount)}</p>
                     </div>
-                    <p className="truncate text-xs text-[var(--planner-subtle)]">{entry.subtitle}</p>
-                  </div>
-                  <p className="text-sm font-semibold">{formatYen(entry.amount)}</p>
-                </div>
-              );
-            })
-          )}
+                  );
+                })
+              )}
+            </div>
+          </div>
         </div>
-      </section>
+      ) : null}
     </div>
-  );
-}
-
-function CompactOverviewStat({ label, value, note }: { label: string; value: string; note: string }) {
-  return (
-    <article className="planner-compact-stat">
-      <p className="planner-compact-stat-label">{label}</p>
-      <p className="planner-compact-stat-value">{value}</p>
-      <p className="planner-compact-stat-note">{note}</p>
-    </article>
   );
 }
 
@@ -274,6 +247,7 @@ function buildCalendarCells(year: number, month: number) {
   return Array.from({ length: cellCount }, (_, index) => {
     const dayNumber = index - startOffset + 1;
     const inMonth = dayNumber >= 1 && dayNumber <= daysInMonth;
+
     return {
       inMonth,
       date: inMonth ? `${year}-${String(month).padStart(2, "0")}-${String(dayNumber).padStart(2, "0")}` : undefined,
