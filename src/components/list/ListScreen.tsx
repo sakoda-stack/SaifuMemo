@@ -31,7 +31,7 @@ interface FixedRecordView {
 
 interface BreakdownSegment {
   id: string;
-  kind: "category" | "medical" | "fixed";
+  kind: "category" | "medical";
   label: string;
   color: string;
   total: number;
@@ -55,6 +55,7 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [medicals, setMedicals] = useState<MedicalExpense[]>([]);
   const [fixedRecords, setFixedRecords] = useState<FixedRecordView[]>([]);
+  const [yearTotal, setYearTotal] = useState(0);
   const [categories, setCategories] = useState<Category[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
@@ -78,12 +79,16 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
 
   const load = useCallback(async () => {
     const { start, end } = getMonthRange(year, month);
-    const [categoryRows, memberRows, expenseRows, medicalRows, fixedRows] = await Promise.all([
+    const yearStart = `${year}-01-01`;
+    const yearEnd = `${year + 1}-01-01`;
+    const [categoryRows, memberRows, expenseRows, medicalRows, fixedRows, yearExpenses, yearMedicals] = await Promise.all([
       db.categories.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
       db.members.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
       db.expenses.where("date").between(start, end, true, false).toArray(),
       db.medicalExpenses.where("paymentDate").between(start, end, true, false).toArray(),
       getMonthlyFixedRecords(year, month),
+      db.expenses.where("date").between(yearStart, yearEnd, true, false).toArray(),
+      db.medicalExpenses.where("paymentDate").between(yearStart, yearEnd, true, false).toArray(),
     ]);
 
     setCategories(categoryRows);
@@ -91,6 +96,7 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
     setExpenses(expenseRows.sort((left, right) => right.date.localeCompare(left.date)));
     setMedicals(medicalRows.sort((left, right) => right.paymentDate.localeCompare(left.paymentDate)));
     setFixedRecords(fixedRows);
+    setYearTotal(yearExpenses.reduce((sum, expense) => sum + expense.amount, 0) + yearMedicals.reduce((sum, medical) => sum + medical.amount, 0));
   }, [month, year]);
 
   useEffect(() => {
@@ -122,17 +128,10 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
     listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const handleBreakdownSelect = (segment: { kind: "category" | "medical" | "fixed"; categoryId?: string; label: string }) => {
+  const handleBreakdownSelect = (segment: { kind: "category" | "medical"; categoryId?: string; label: string }) => {
     if (segment.kind === "medical") {
       setFilter("medical");
       setBreakdownTarget({ kind: "medical", label: segment.label });
-      jumpToList();
-      return;
-    }
-
-    if (segment.kind === "fixed") {
-      setFilter("fixed");
-      setBreakdownTarget({ kind: "fixed", label: segment.label });
       jumpToList();
       return;
     }
@@ -195,6 +194,7 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
   const resolveMemberLabel = (memberId?: string) => memberMap.get(memberId ?? "")?.shortName || "未設定";
 
   const breakdownSegments = useMemo(() => {
+    const medicalCategory = categories.find((category) => category.isMedical);
     const segments: BreakdownSegment[] = categories
       .filter((category) => !category.isMedical)
       .map((category) => ({
@@ -208,14 +208,15 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
       .filter((segment) => segment.total > 0);
 
     const medicalTotal = medicals.reduce((sum, medical) => sum + medical.amount, 0);
-    const fixedTotal = fixedRecords.reduce((sum, record) => sum + record.actualAmount, 0);
 
     if (medicalTotal > 0) {
-      segments.push({ id: "medical", kind: "medical", label: "医療費", color: "#b84e41", total: medicalTotal });
-    }
-
-    if (fixedTotal > 0) {
-      segments.push({ id: "fixed", kind: "fixed", label: "固定費", color: "#486ca5", total: fixedTotal });
+      segments.push({
+        id: medicalCategory?.id ?? "medical",
+        kind: "medical",
+        label: medicalCategory?.name ?? "医療費",
+        color: medicalCategory?.colorHex || "#d46a6a",
+        total: medicalTotal,
+      });
     }
 
     const total = segments.reduce((sum, segment) => sum + segment.total, 0);
@@ -227,13 +228,12 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
         share: total > 0 ? segment.total / total : 0,
         isActive:
           (segment.kind === "category" && breakdownTarget.kind === "category" && breakdownTarget.categoryId === segment.categoryId) ||
-          (segment.kind === "medical" && breakdownTarget.kind === "medical") ||
-          (segment.kind === "fixed" && breakdownTarget.kind === "fixed"),
+          (segment.kind === "medical" && breakdownTarget.kind === "medical"),
       }));
-  }, [breakdownTarget, categories, expenses, fixedRecords, medicals]);
+  }, [breakdownTarget, categories, expenses, medicals]);
 
   const totalSpend = breakdownSegments.reduce((sum, segment) => sum + segment.total, 0);
-  const activeBreakdownLabel = breakdownTarget.kind === "all" ? "" : breakdownTarget.label;
+  const activeBreakdownLabel = breakdownTarget.kind === "all" || breakdownTarget.kind === "fixed" ? "" : breakdownTarget.label;
   const isFixedMode = filter === "fixed" || breakdownTarget.kind === "fixed";
 
   const goMonth = (delta: number) => {
@@ -364,8 +364,16 @@ export default function ListScreen({ initialFilter = "all" }: { initialFilter?: 
           {breakdownSegments.length === 0 ? (
             <EmptyState title="支出がありません" message="この月の支出が追加されると内訳が表示されます。" />
           ) : (
-            <ExpenseBreakdownDonut segments={breakdownSegments} total={totalSpend} activeLabel={activeBreakdownLabel} onSelect={handleBreakdownSelect} />
+            <ExpenseBreakdownDonut segments={breakdownSegments} activeLabel={activeBreakdownLabel} onSelect={handleBreakdownSelect} />
           )}
+        </div>
+      </section>
+
+      <section className="planner-card">
+        <SectionHeader kicker="YEAR TOTAL" title={`${year}年 合計`} />
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <CompactOverviewStat label="年TOTAL" value={formatYen(yearTotal)} />
+          <CompactOverviewStat label="今月グラフ対象" value={formatYen(totalSpend)} />
         </div>
       </section>
 
