@@ -5,124 +5,191 @@
 import Dexie, { type Table } from "dexie";
 import { v4 as uuid } from "uuid";
 import type {
-  Member, Category, ShopMaster, Expense,
-  MedicalExpense, FixedExpenseTemplate, FixedExpenseRecord,
+  Member,
+  Category,
+  ShopMaster,
+  Expense,
+  MedicalExpense,
+  FixedExpenseTemplate,
+  FixedExpenseRecord,
 } from "@/types";
 
-// ── データベース定義 ──────────────────────────────────────────
 class SaifuMemoDB extends Dexie {
-  members!:               Table<Member, string>;
-  categories!:            Table<Category, string>;
-  shopMasters!:           Table<ShopMaster, string>;
-  expenses!:              Table<Expense, string>;
-  medicalExpenses!:       Table<MedicalExpense, string>;
-  fixedTemplates!:        Table<FixedExpenseTemplate, string>;
-  fixedRecords!:          Table<FixedExpenseRecord, string>;
+  members!: Table<Member, string>;
+  categories!: Table<Category, string>;
+  shopMasters!: Table<ShopMaster, string>;
+  expenses!: Table<Expense, string>;
+  medicalExpenses!: Table<MedicalExpense, string>;
+  fixedTemplates!: Table<FixedExpenseTemplate, string>;
+  fixedRecords!: Table<FixedExpenseRecord, string>;
 
   constructor() {
     super("SaifuMemoDB");
 
-    // バージョン1: テーブルとインデックスの定義
     this.version(1).stores({
-      members:         "id, sortOrder, isActive",
-      categories:      "id, sortOrder, isMedical, isFixed, isActive",
-      shopMasters:     "id, shopType, usageCount, isActive",
-      expenses:        "id, date, memberId, categoryId, shopId, isChecked, createdAt",
+      members: "id, sortOrder, isActive",
+      categories: "id, sortOrder, isMedical, isFixed, isActive",
+      shopMasters: "id, shopType, usageCount, isActive",
+      expenses: "id, date, memberId, categoryId, shopId, isChecked, createdAt",
       medicalExpenses: "id, paymentDate, memberId, hospitalId, fiscalYear, isChecked",
-      fixedTemplates:  "id, sortOrder, isActive",
-      fixedRecords:    "id, [year+month], templateId",
+      fixedTemplates: "id, sortOrder, isActive",
+      fixedRecords: "id, [year+month], templateId",
     });
   }
 }
 
 export const db = new SaifuMemoDB();
 
-// ── 初期データ投入（初回のみ） ──────────────────────────────
+type MemberSeed = Omit<Member, "id" | "createdAt">;
+type CategorySeed = Omit<Category, "id">;
+type ShopSeed = Omit<ShopMaster, "id" | "createdAt">;
+type FixedTemplateSeed = Omit<FixedExpenseTemplate, "id">;
+
+const DEFAULT_CATEGORIES: CategorySeed[] = [
+  { name: "食費", icon: "ShoppingCart", colorHex: "#D68C45", sortOrder: 0, isMedical: false, isFixed: false, isCustom: false, isActive: true },
+  { name: "日用品", icon: "ShoppingBasket", colorHex: "#C97B63", sortOrder: 1, isMedical: false, isFixed: false, isCustom: false, isActive: true },
+  { name: "衣服", icon: "Shirt", colorHex: "#B8739A", sortOrder: 2, isMedical: false, isFixed: false, isCustom: false, isActive: true },
+  { name: "医療費", icon: "HeartPulse", colorHex: "#D46A6A", sortOrder: 3, isMedical: true, isFixed: false, isCustom: false, isActive: true },
+  { name: "交通費", icon: "Train", colorHex: "#6A84C3", sortOrder: 4, isMedical: false, isFixed: false, isCustom: false, isActive: true },
+  { name: "電気", icon: "Zap", colorHex: "#D5A740", sortOrder: 5, isMedical: false, isFixed: true, isCustom: false, isActive: true },
+  { name: "ガス", icon: "Flame", colorHex: "#D46A6A", sortOrder: 6, isMedical: false, isFixed: true, isCustom: false, isActive: true },
+  { name: "水道", icon: "Droplets", colorHex: "#5D948A", sortOrder: 7, isMedical: false, isFixed: true, isCustom: false, isActive: true },
+  { name: "家賃", icon: "Home", colorHex: "#8A73BE", sortOrder: 8, isMedical: false, isFixed: true, isCustom: false, isActive: true },
+  { name: "通信費", icon: "Wifi", colorHex: "#6A84C3", sortOrder: 9, isMedical: false, isFixed: true, isCustom: false, isActive: true },
+  { name: "保険", icon: "Shield", colorHex: "#7E9C68", sortOrder: 10, isMedical: false, isFixed: true, isCustom: false, isActive: true },
+  { name: "子ども費", icon: "Baby", colorHex: "#D68C45", sortOrder: 11, isMedical: false, isFixed: false, isCustom: false, isActive: true },
+  { name: "教育費", icon: "BookOpen", colorHex: "#6A84C3", sortOrder: 12, isMedical: false, isFixed: false, isCustom: false, isActive: true },
+  { name: "娯楽", icon: "Gamepad2", colorHex: "#8A73BE", sortOrder: 13, isMedical: false, isFixed: false, isCustom: false, isActive: true },
+  { name: "特別費", icon: "Star", colorHex: "#D5A740", sortOrder: 14, isMedical: false, isFixed: false, isCustom: false, isActive: true },
+  { name: "その他", icon: "MoreHorizontal", colorHex: "#7A7A7A", sortOrder: 15, isMedical: false, isFixed: false, isCustom: false, isActive: true },
+];
+
+const DEFAULT_MEMBERS: MemberSeed[] = [
+  { name: "迫田 幸平", shortName: "幸平", sortOrder: 0, isActive: true },
+  { name: "迫田 玲美", shortName: "玲美", sortOrder: 1, isActive: true },
+  { name: "迫田 怜來", shortName: "怜來", sortOrder: 2, isActive: true },
+  { name: "迫田 倖愛", shortName: "倖愛", sortOrder: 3, isActive: true },
+];
+
+const DEFAULT_SHOPS: ShopSeed[] = [
+  { name: "イオン流山おおたかの森", shopType: "general", usageCount: 0, isActive: true },
+  { name: "マツモトキヨシ", shopType: "general", usageCount: 0, isActive: true },
+  { name: "ウエルシア", shopType: "general", usageCount: 0, isActive: true },
+  { name: "業務スーパー", shopType: "general", usageCount: 0, isActive: true },
+  { name: "西松屋", shopType: "general", usageCount: 0, isActive: true },
+  { name: "電車・バス", shopType: "general", usageCount: 0, isActive: true },
+  { name: "そうごう薬局", shopType: "pharmacy", usageCount: 0, isActive: true },
+  { name: "アイセイ薬局", shopType: "pharmacy", usageCount: 0, isActive: true },
+  { name: "おおたかの森こどもクリニック", shopType: "hospital", usageCount: 0, isActive: true },
+  { name: "レラデンタルクリニック", shopType: "hospital", usageCount: 0, isActive: true },
+  { name: "こばやし耳鼻科", shopType: "hospital", usageCount: 0, isActive: true },
+  { name: "みわ歯科", shopType: "hospital", usageCount: 0, isActive: true },
+];
+
+const DEFAULT_FIXED_TEMPLATES: FixedTemplateSeed[] = [
+  { name: "電気代", defaultAmount: 8000, dayOfMonth: 1, isActive: true, sortOrder: 0 },
+  { name: "ガス代", defaultAmount: 5000, dayOfMonth: 1, isActive: true, sortOrder: 1 },
+  { name: "水道代", defaultAmount: 3000, dayOfMonth: 1, isActive: true, sortOrder: 2 },
+  { name: "家賃", defaultAmount: 90000, dayOfMonth: 1, isActive: true, sortOrder: 3 },
+  { name: "通信費", defaultAmount: 8000, dayOfMonth: 1, isActive: true, sortOrder: 4 },
+];
+
 export async function seedIfNeeded(): Promise<void> {
-  const count = await db.categories.count();
-  if (count > 0) return; // すでにデータがあればスキップ
+  await db.transaction(
+    "rw",
+    db.categories,
+    db.members,
+    db.shopMasters,
+    db.fixedTemplates,
+    async () => {
+      if (await db.categories.count() === 0) {
+        await db.categories.bulkAdd(DEFAULT_CATEGORIES.map((category) => ({ id: uuid(), ...category })));
+      }
 
-  console.log("📦 初回起動: 初期データを投入します");
+      if (await db.members.count() === 0) {
+        await db.members.bulkAdd(
+          DEFAULT_MEMBERS.map((member) => ({
+            id: uuid(),
+            createdAt: new Date(),
+            ...member,
+          })),
+        );
+      }
 
-  // カテゴリ
-  const categories: Category[] = [
-    { id: uuid(), name: "食費",     icon: "ShoppingCart", colorHex: "#E8860A", sortOrder: 0,  isMedical: false, isFixed: false, isCustom: false, isActive: true },
-    { id: uuid(), name: "日用品",   icon: "ShoppingBasket",colorHex: "#9B5CF6", sortOrder: 1,  isMedical: false, isFixed: false, isCustom: false, isActive: true },
-    { id: uuid(), name: "衣服",     icon: "Shirt",         colorHex: "#E91E8C", sortOrder: 2,  isMedical: false, isFixed: false, isCustom: false, isActive: true },
-    { id: uuid(), name: "医療費",   icon: "Cross",         colorHex: "#E05C5C", sortOrder: 3,  isMedical: true,  isFixed: false, isCustom: false, isActive: true },
-    { id: uuid(), name: "交通費",   icon: "Train",         colorHex: "#0EA5E9", sortOrder: 4,  isMedical: false, isFixed: false, isCustom: false, isActive: true },
-    { id: uuid(), name: "電気",     icon: "Zap",           colorHex: "#F59E0B", sortOrder: 5,  isMedical: false, isFixed: true,  isCustom: false, isActive: true },
-    { id: uuid(), name: "ガス",     icon: "Flame",         colorHex: "#EF4444", sortOrder: 6,  isMedical: false, isFixed: true,  isCustom: false, isActive: true },
-    { id: uuid(), name: "水道",     icon: "Droplets",      colorHex: "#3B82F6", sortOrder: 7,  isMedical: false, isFixed: true,  isCustom: false, isActive: true },
-    { id: uuid(), name: "家賃",     icon: "Home",          colorHex: "#6366F1", sortOrder: 8,  isMedical: false, isFixed: true,  isCustom: false, isActive: true },
-    { id: uuid(), name: "通信費",   icon: "Wifi",          colorHex: "#8B5CF6", sortOrder: 9,  isMedical: false, isFixed: true,  isCustom: false, isActive: true },
-    { id: uuid(), name: "保険",     icon: "Shield",        colorHex: "#10B981", sortOrder: 10, isMedical: false, isFixed: true,  isCustom: false, isActive: true },
-    { id: uuid(), name: "子ども費", icon: "Baby",          colorHex: "#F97316", sortOrder: 11, isMedical: false, isFixed: false, isCustom: false, isActive: true },
-    { id: uuid(), name: "教育費",   icon: "BookOpen",      colorHex: "#3B82F6", sortOrder: 12, isMedical: false, isFixed: false, isCustom: false, isActive: true },
-    { id: uuid(), name: "娯楽",     icon: "Gamepad2",      colorHex: "#A855F7", sortOrder: 13, isMedical: false, isFixed: false, isCustom: false, isActive: true },
-    { id: uuid(), name: "特別費",   icon: "Star",          colorHex: "#EAB308", sortOrder: 14, isMedical: false, isFixed: false, isCustom: false, isActive: true },
-    { id: uuid(), name: "その他",   icon: "MoreHorizontal", colorHex: "#6B7280", sortOrder: 15, isMedical: false, isFixed: false, isCustom: false, isActive: true },
-  ];
-  await db.categories.bulkAdd(categories);
+      if (await db.shopMasters.count() === 0) {
+        await db.shopMasters.bulkAdd(
+          DEFAULT_SHOPS.map((shop) => ({
+            id: uuid(),
+            createdAt: new Date(),
+            ...shop,
+          })),
+        );
+      }
 
-  // 家族メンバー
-  await db.members.bulkAdd([
-    { id: uuid(), name: "迫田 幸平", shortName: "幸平", sortOrder: 0, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "迫田 玲美", shortName: "玲美", sortOrder: 1, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "迫田 怜來", shortName: "怜來", sortOrder: 2, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "迫田 倖愛", shortName: "倖愛", sortOrder: 3, isActive: true, createdAt: new Date() },
-  ]);
+      if (await db.fixedTemplates.count() === 0) {
+        await db.fixedTemplates.bulkAdd(
+          DEFAULT_FIXED_TEMPLATES.map((template) => ({
+            id: uuid(),
+            ...template,
+          })),
+        );
+      }
+    },
+  );
 
-  // 店舗マスタ
-  await db.shopMasters.bulkAdd([
-    { id: uuid(), name: "イオン流山おおたかの森",         shopType: "general",  usageCount: 0, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "マツモトキヨシ",                shopType: "general",  usageCount: 0, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "ウエルシア",                   shopType: "general",  usageCount: 0, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "業務スーパー",                  shopType: "general",  usageCount: 0, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "そうごう薬局",                  shopType: "pharmacy", usageCount: 0, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "アイセイ薬局",                  shopType: "pharmacy", usageCount: 0, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "電車・バス・タクシー",           shopType: "general",  usageCount: 0, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "おおたかの森こどもクリニック",    shopType: "hospital", usageCount: 0, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "レラデンタルクリニック",          shopType: "hospital", usageCount: 0, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "こばやし耳鼻科",                shopType: "hospital", usageCount: 0, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "みわ歯科",                     shopType: "hospital", usageCount: 0, isActive: true, createdAt: new Date() },
-    { id: uuid(), name: "キャップスクリニック流山おおたかの森", shopType: "hospital", usageCount: 0, isActive: true, createdAt: new Date() },
-  ]);
-
-  // 固定費テンプレート
-  await db.fixedTemplates.bulkAdd([
-    { id: uuid(), name: "電気代",  defaultAmount: 8000,  dayOfMonth: 1, isActive: true, sortOrder: 0 },
-    { id: uuid(), name: "ガス代",  defaultAmount: 5000,  dayOfMonth: 1, isActive: true, sortOrder: 1 },
-    { id: uuid(), name: "水道代",  defaultAmount: 3000,  dayOfMonth: 1, isActive: true, sortOrder: 2 },
-    { id: uuid(), name: "家賃",    defaultAmount: 90000, dayOfMonth: 1, isActive: true, sortOrder: 3 },
-    { id: uuid(), name: "通信費",  defaultAmount: 8000,  dayOfMonth: 1, isActive: true, sortOrder: 4 },
-  ]);
-
-  // 今月の固定費レコードを生成
+  await normalizeCategoryDefaults();
   await generateFixedRecords();
-
-  console.log("✅ 初期データ投入完了");
 }
 
-// 固定費の毎月自動生成
+async function normalizeCategoryDefaults(): Promise<void> {
+  const categories = await db.categories.toArray();
+  const defaultByName = new Map(DEFAULT_CATEGORIES.map((category) => [category.name, category]));
+
+  await Promise.all(
+    categories.map(async (category) => {
+      const defaults = defaultByName.get(category.name);
+      if (!defaults || category.isCustom) {
+        return;
+      }
+
+      const updates: Partial<Category> = {};
+
+      if (!category.icon || category.icon === "Cross") {
+        updates.icon = defaults.icon;
+      }
+      if (!category.colorHex) {
+        updates.colorHex = defaults.colorHex;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await db.categories.update(category.id, updates);
+      }
+    }),
+  );
+}
+
 export async function generateFixedRecords(): Promise<void> {
   const today = new Date();
   const year = today.getFullYear();
   const month = today.getMonth() + 1;
 
-  const templates = await db.fixedTemplates.where("isActive").equals(1).toArray();
-  for (const t of templates) {
+  const templates = (await db.fixedTemplates.orderBy("sortOrder").toArray()).filter((template) => template.isActive);
+
+  for (const template of templates) {
     const exists = await db.fixedRecords
-      .where(["year+month"])
+      .where("[year+month]")
       .equals([year, month])
-      .filter(r => r.templateId === t.id)
+      .filter((record) => record.templateId === template.id)
       .count();
+
     if (exists === 0) {
       await db.fixedRecords.add({
-        id: uuid(), year, month,
-        actualAmount: t.defaultAmount,
+        id: uuid(),
+        year,
+        month,
+        actualAmount: template.defaultAmount,
         isConfirmed: false,
-        templateId: t.id,
+        templateId: template.id,
       });
     }
   }

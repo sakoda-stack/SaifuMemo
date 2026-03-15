@@ -1,128 +1,150 @@
-// src/components/medical/MedicalScreen.tsx
-
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { HeartPulse } from "lucide-react";
 import { db } from "@/db/database";
-import { formatYen, generateMedicalCSV, downloadCSV } from "@/utils";
-import type { MedicalExpense, Member, ShopMaster } from "@/types";
+import { downloadCSV, formatYen, generateMedicalCSV } from "@/utils";
+import type { MedicalExpense, Member } from "@/types";
 
 export default function MedicalScreen() {
   const currentYear = new Date().getFullYear();
-  const [selYear,    setSelYear]    = useState(currentYear);
-  const [selMember,  setSelMember]  = useState("all");
-  const [records,    setRecords]    = useState<MedicalExpense[]>([]);
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [selectedMember, setSelectedMember] = useState("all");
+  const [records, setRecords] = useState<MedicalExpense[]>([]);
   const [allRecords, setAllRecords] = useState<MedicalExpense[]>([]);
-  const [members,    setMembers]    = useState<Member[]>([]);
-  const [shops,      setShops]      = useState<Map<string,string>>(new Map());
+  const [members, setMembers] = useState<Member[]>([]);
+  const [shops, setShops] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     const load = async () => {
-      const [mems, all, hosps] = await Promise.all([
-        db.members.where("isActive").equals(1).sortBy("sortOrder"),
-        db.medicalExpenses.where("fiscalYear").equals(selYear).toArray(),
+      const [memberRows, medicalRows, shopRows] = await Promise.all([
+        db.members.orderBy("sortOrder").toArray().then((rows) => rows.filter((member) => member.isActive)),
+        db.medicalExpenses.where("fiscalYear").equals(selectedYear).toArray(),
         db.shopMasters.toArray(),
       ]);
-      setMembers(mems);
-      setAllRecords(all);
-      setShops(new Map(hosps.map(h => [h.id, h.name])));
-      setRecords(selMember==="all" ? all : all.filter(r=>r.memberId===selMember));
+
+      setMembers(memberRows);
+      setAllRecords(medicalRows);
+      setShops(new Map(shopRows.map((shop) => [shop.id, shop.name])));
+      setRecords(selectedMember === "all" ? medicalRows : medicalRows.filter((record) => record.memberId === selectedMember));
     };
+
     load();
-  }, [selYear, selMember]);
+  }, [selectedMember, selectedYear]);
 
-  const getMemberName = (id?: string) => members.find(m=>m.id===id)?.shortName ?? "";
-  const getHospName   = (id?: string) => shops.get(id??"") ?? "";
+  const getMemberName = (id?: string) => members.find((member) => member.id === id)?.shortName ?? "";
+  const getHospitalName = (id?: string) => shops.get(id ?? "") ?? "";
 
-  const total    = records.reduce((s,r)=>s+r.amount,0);
-  const netTotal = records.reduce((s,r)=>s+r.amount-r.reimbursedAmount,0);
-  const progress = Math.min(1, netTotal/100_000);
-  const deductible = Math.max(0, netTotal-100_000);
+  const total = records.reduce((sum, record) => sum + record.amount, 0);
+  const netTotal = records.reduce((sum, record) => sum + record.amount - record.reimbursedAmount, 0);
+  const deductible = Math.max(0, netTotal - 100_000);
+  const progress = Math.min(1, netTotal / 100_000);
 
-  const doExport = () => {
-    const csv = generateMedicalCSV(selYear, allRecords, getMemberName, getHospName);
-    downloadCSV(csv, `医療費集計_${selYear}年度.csv`);
+  const exportCsv = () => {
+    const csv = generateMedicalCSV(selectedYear, allRecords, getMemberName, getHospitalName);
+    downloadCSV(csv, `医療費集計_${selectedYear}年.csv`);
   };
 
   return (
-    <div className="p-4 pb-6 space-y-4 slide-up">
-      <h2 className="text-2xl font-extrabold pt-2">医療費控除</h2>
-
-      {/* 年度切替 */}
-      <div className="flex rounded-2xl overflow-hidden bg-white">
-        {[currentYear, currentYear-1, currentYear-2].map(y=>(
-          <button key={y} onClick={()=>setSelYear(y)}
-            className="flex-1 py-2.5 text-sm font-bold transition-all"
-            style={selYear===y?{backgroundColor:"#E05C5C",color:"#fff"}:{color:"#888"}}>
-            {y}年度
-          </button>
-        ))}
-      </div>
-
-      {/* サマリーカード */}
-      <div className="rounded-2xl p-5 text-white" style={{background:"linear-gradient(135deg,#C0392B,#E05C5C)"}}>
-        <p className="text-sm opacity-80 mb-1">年間医療費合計（補填後）</p>
-        <p className="text-4xl font-extrabold tracking-tight">{formatYen(netTotal)}</p>
-        {netTotal!==total&&<p className="text-xs opacity-75 mt-1">支払総額 {formatYen(total)}</p>}
-        <div className="mt-4">
-          <div className="h-3 rounded-full overflow-hidden" style={{backgroundColor:"rgba(255,255,255,0.25)"}}>
-            <div className="h-full rounded-full bg-white transition-all" style={{width:`${progress*100}%`}}/>
+    <div className="planner-page slide-up">
+      <section className="planner-card bg-[linear-gradient(135deg,rgba(212,106,106,0.96),rgba(184,89,89,0.92))] text-white">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold tracking-[0.08em] text-white/80">医療費控除の確認</p>
+            <h1 className="mt-2 font-['Hiragino_Mincho_ProN','Yu_Mincho',serif] text-3xl font-bold">{selectedYear}年分</h1>
           </div>
-          <div className="flex justify-between mt-2">
-            <span className="text-xs opacity-75">10万円ライン: ¥100,000</span>
-            {deductible>0
-              ? <span className="text-xs font-bold">控除対象: {formatYen(deductible)}</span>
-              : <span className="text-xs opacity-75">あと {formatYen(100_000-netTotal)}</span>}
+          <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-white/15">
+            <HeartPulse size={22} />
           </div>
         </div>
-      </div>
-
-      {/* 人別フィルタ */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {[{id:"all",shortName:"全員"}, ...members].map(m=>(
-          <button key={m.id} onClick={()=>setSelMember(m.id)}
-            className="px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all"
-            style={selMember===m.id?{backgroundColor:"#E05C5C",color:"#fff"}:{backgroundColor:"#fff",color:"#888"}}>
-            {m.shortName}
-          </button>
-        ))}
-      </div>
-
-      {/* 明細テーブル */}
-      <div className="bg-white rounded-2xl overflow-hidden">
-        <div className="flex px-4 py-2.5" style={{backgroundColor:"#FDEAEA"}}>
-          <span className="w-12 text-xs font-bold" style={{color:"#E05C5C"}}>対象者</span>
-          <span className="flex-1 text-xs font-bold" style={{color:"#E05C5C"}}>病院・薬局</span>
-          <span className="w-24 text-right text-xs font-bold" style={{color:"#E05C5C"}}>金額</span>
+        <p className="mt-5 text-4xl font-bold">{formatYen(netTotal)}</p>
+        <p className="mt-1 text-xs text-white/80">補填後の医療費合計{netTotal !== total ? ` / 支払総額 ${formatYen(total)}` : ""}</p>
+        <div className="mt-5 h-3 rounded-full bg-white/20">
+          <div className="h-3 rounded-full bg-white" style={{ width: `${progress * 100}%` }} />
         </div>
-        {records.length===0
-          ? <p className="text-center text-sm text-gray-400 py-8">この年度の医療費はありません</p>
-          : records.map((r,i)=>(
-            <div key={r.id} className="flex items-start px-4 py-3 border-b border-gray-50"
-                 style={i%2===1?{backgroundColor:"#fafafa"}:{}}>
-              <span className="w-12 text-sm text-gray-500">{getMemberName(r.memberId)}</span>
-              <div className="flex-1">
-                <p className="text-sm font-medium">{getHospName(r.hospitalId)||"未設定"}</p>
-                <p className="text-xs text-gray-400">{r.isTransportation?"通院交通費":r.medicalType}</p>
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+          <span className="text-white/80">10万円ライン</span>
+          <span className="font-semibold">{deductible > 0 ? `控除対象 ${formatYen(deductible)}` : `あと ${formatYen(100_000 - netTotal)}`}</span>
+        </div>
+      </section>
+
+      <section className="planner-card">
+        <div className="planner-section-header">
+          <div>
+            <p className="planner-kicker">集計する年</p>
+            <h2 className="planner-subheading">年度ではなく支払年</h2>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          {[currentYear, currentYear - 1, currentYear - 2].map((year) => (
+            <button
+              key={year}
+              type="button"
+              onClick={() => setSelectedYear(year)}
+              className={`planner-pill ${selectedYear === year ? "planner-pill-active" : ""}`}
+            >
+              {year}年
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="planner-card">
+        <div className="planner-section-header">
+          <div>
+            <p className="planner-kicker">家族ごとの確認</p>
+            <h2 className="planner-subheading">対象者フィルタ</h2>
+          </div>
+        </div>
+        <div className="planner-pill-grid mt-4">
+          {[{ id: "all", shortName: "全員" }, ...members].map((member) => (
+            <button
+              key={member.id}
+              type="button"
+              onClick={() => setSelectedMember(member.id)}
+              className={`planner-pill ${selectedMember === member.id ? "planner-pill-active" : ""}`}
+            >
+              {member.shortName}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="planner-card">
+        <div className="planner-section-header">
+          <div>
+            <p className="planner-kicker">入力済みの一覧</p>
+            <h2 className="planner-subheading">明細</h2>
+          </div>
+          <p className="text-sm font-semibold text-[var(--planner-danger)]">{records.length}件</p>
+        </div>
+        <div className="mt-4 space-y-3">
+          {records.length === 0 ? (
+            <p className="rounded-[22px] bg-[var(--planner-soft)] px-4 py-8 text-center text-sm text-[var(--planner-subtle)]">
+              この年の医療費はまだありません。
+            </p>
+          ) : (
+            records.map((record) => (
+              <div key={record.id} className="planner-row">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] bg-[rgba(212,106,106,0.16)]">
+                  <HeartPulse size={18} className="text-[var(--planner-danger)]" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-[var(--planner-text)]">{getHospitalName(record.hospitalId) || "未設定"}</p>
+                  <p className="text-xs text-[var(--planner-subtle)]">
+                    {getMemberName(record.memberId) || "未設定"} ・ {record.isTransportation ? "通院交通費" : record.medicalType}
+                  </p>
+                </div>
+                <p className="text-sm font-bold text-[var(--planner-text)]">{formatYen(record.amount)}</p>
               </div>
-              <span className="w-24 text-right text-sm font-bold">{formatYen(r.amount)}</span>
-            </div>
-          ))
-        }
-        {records.length>0&&(
-          <div className="flex px-4 py-3" style={{backgroundColor:"#FDEAEA"}}>
-            <span className="flex-1 text-right text-sm font-bold">合計</span>
-            <span className="w-24 text-right text-sm font-bold" style={{color:"#E05C5C"}}>{formatYen(total)}</span>
-          </div>
-        )}
-      </div>
+            ))
+          )}
+        </div>
+      </section>
 
-      {/* CSV出力 */}
-      <button onClick={doExport}
-        className="w-full py-4 rounded-2xl text-white font-bold flex items-center justify-center gap-2"
-        style={{backgroundColor:"#3B7DD8"}}>
-        📊 CSV出力（国税庁フォーム対応）
+      <button type="button" onClick={exportCsv} className="planner-action w-full border-0 bg-[var(--planner-accent)] text-white">
+        CSV出力を確認する
       </button>
-      <p className="text-xs text-center text-gray-400">
-        e-Tax・マイナポータルにそのままインポートできます
+      <p className="px-2 text-center text-xs text-[var(--planner-subtle)]">
+        Excel で文字化けしにくい UTF-8 BOM 付きです。e-Tax 用にそのまま確認できます。
       </p>
     </div>
   );

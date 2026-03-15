@@ -1,27 +1,31 @@
-// src/App.tsx
-// タブナビゲーションのルート
-// PWAなのでReact Routerは使わず、シンプルなstateで切り替える
-
-import { useState, useEffect } from "react";
-import { Home, List, Plus, HeartPulse, Settings } from "lucide-react";
-import { seedIfNeeded, generateFixedRecords } from "@/db/database";
-import HomeScreen    from "@/components/home/HomeScreen";
-import ListScreen    from "@/components/list/ListScreen";
+import { useEffect, useState } from "react";
+import { Calendar, HeartPulse, List, NotebookPen, Settings, Wallet } from "lucide-react";
+import { generateFixedRecords, seedIfNeeded } from "@/db/database";
+import AddExpenseModal from "@/components/add/AddExpenseModal";
+import AddMedicalModal from "@/components/add/AddMedicalModal";
+import CalendarScreen from "@/components/calendar/CalendarScreen";
+import HomeScreen from "@/components/home/HomeScreen";
+import ListScreen from "@/components/list/ListScreen";
 import MedicalScreen from "@/components/medical/MedicalScreen";
 import SettingsScreen from "@/components/settings/SettingsScreen";
-import AddExpenseModal  from "@/components/add/AddExpenseModal";
-import AddMedicalModal  from "@/components/add/AddMedicalModal";
 
-type Tab = "home" | "list" | "medical" | "settings";
+type Tab = "home" | "list" | "calendar" | "medical" | "settings";
+
+const TAB_ITEMS: Array<{ id: Tab; label: string; icon: JSX.Element }> = [
+  { id: "home", label: "今日の家計", icon: <Wallet size={18} /> },
+  { id: "list", label: "支出一覧", icon: <List size={18} /> },
+  { id: "calendar", label: "カレンダー", icon: <Calendar size={18} /> },
+  { id: "medical", label: "医療費", icon: <HeartPulse size={18} /> },
+  { id: "settings", label: "整える", icon: <Settings size={18} /> },
+];
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("home");
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [showAddMedical, setShowAddMedical] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0); // 保存後に画面をリフレッシュする
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // 初回起動時の初期化
   useEffect(() => {
     seedIfNeeded();
     generateFixedRecords();
@@ -30,102 +34,103 @@ export default function App() {
   const onSaved = () => {
     setShowAddExpense(false);
     setShowAddMedical(false);
-    setRefreshKey(k => k + 1); // 画面を再読み込み
+    setRefreshKey((current) => current + 1);
   };
 
   const screens: Record<Tab, JSX.Element> = {
-    home:     <HomeScreen    key={refreshKey} />,
-    list:     <ListScreen    key={refreshKey} />,
-    medical:  <MedicalScreen key={refreshKey} />,
+    home: <HomeScreen key={refreshKey} />,
+    list: <ListScreen key={refreshKey} />,
+    calendar: <CalendarScreen key={refreshKey} />,
+    medical: <MedicalScreen key={refreshKey} />,
     settings: <SettingsScreen key={refreshKey} />,
   };
 
   return (
-    // iPhoneのノッチ・ホームバーに対応したレイアウト
-    <div className="flex flex-col h-screen max-w-md mx-auto bg-app-bg"
-         style={{ paddingTop: "env(safe-area-inset-top)" }}>
+    <div className="min-h-screen overflow-hidden bg-[var(--planner-bg)]">
+      <div className="planner-backdrop" />
+      <div
+        className="relative flex min-h-screen w-full flex-col px-3 pb-6 pt-3"
+        style={{
+          paddingTop: "max(12px, env(safe-area-inset-top))",
+          paddingBottom: "max(24px, env(safe-area-inset-bottom))",
+        }}
+      >
+        <header className="sticky top-0 z-30 pb-3">
+          <div className="planner-tabs">
+            {TAB_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setTab(item.id)}
+                className={`planner-tab ${tab === item.id ? "planner-tab-active" : ""}`}
+              >
+                <span>{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </header>
 
-      {/* ── メインコンテンツ（スクロール可） ── */}
-      <main className="flex-1 overflow-y-auto">
-        {screens[tab]}
-      </main>
+        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+          <div className="planner-sheet">{screens[tab]}</div>
+        </main>
 
-      {/* ── タブバー ── */}
-      <nav className="bg-white border-t border-gray-200 flex items-end relative"
-           style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <button
+          type="button"
+          onClick={() => setShowAddMenu(true)}
+          className="planner-fab"
+          aria-label="記録を追加"
+        >
+          <NotebookPen size={22} />
+          <span>記録する</span>
+        </button>
+      </div>
 
-        <TabItem icon={<Home size={22}/>}       label="ホーム"   active={tab==="home"}     onClick={() => setTab("home")} />
-        <TabItem icon={<List size={22}/>}       label="明細"     active={tab==="list"}     onClick={() => setTab("list")} />
-
-        {/* 中央の＋ボタン */}
-        <div className="flex-1 flex justify-center items-center pb-1">
-          <button
-            onClick={() => setShowAddMenu(true)}
-            className="w-14 h-14 rounded-full flex items-center justify-center shadow-lg -mt-5"
-            style={{ backgroundColor: "#3B7DD8", boxShadow: "0 4px 14px rgba(59,125,216,0.5)" }}
-          >
-            <Plus size={28} color="white" strokeWidth={2.5} />
-          </button>
-        </div>
-
-        <TabItem icon={<HeartPulse size={22}/>} label="医療費"   active={tab==="medical"}  onClick={() => setTab("medical")} />
-        <TabItem icon={<Settings size={22}/>}   label="設定"     active={tab==="settings"} onClick={() => setTab("settings")} />
-      </nav>
-
-      {/* ── 追加メニュー（モーダル） ── */}
       {showAddMenu && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center"
-             onClick={() => setShowAddMenu(false)}>
-          <div className="absolute inset-0 bg-black/50" />
-          <div className="relative w-full max-w-md bg-white rounded-t-3xl pb-10 pt-4 px-6 fade-in"
-               onClick={e => e.stopPropagation()}>
-            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4" />
-            <p className="text-center text-sm text-gray-500 font-semibold mb-4">何を追加しますか？</p>
-            <button
-              onClick={() => { setShowAddMenu(false); setShowAddExpense(true); }}
-              className="w-full flex items-center gap-3 p-4 rounded-2xl bg-gray-50 mb-3 active:bg-gray-100"
-            >
-              <span className="text-2xl">💰</span>
-              <span className="text-base font-semibold">通常の支出を追加</span>
-            </button>
-            <button
-              onClick={() => { setShowAddMenu(false); setShowAddMedical(true); }}
-              className="w-full flex items-center gap-3 p-4 rounded-2xl bg-red-50 active:bg-red-100"
-            >
-              <span className="text-2xl">🏥</span>
-              <span className="text-base font-semibold text-red-600">医療費を追加</span>
-            </button>
+        <div className="fixed inset-0 z-40 flex items-end justify-center" onClick={() => setShowAddMenu(false)}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+          <div
+            className="relative mx-3 mb-3 w-[calc(100%-24px)] rounded-[28px] border border-[var(--planner-line)] bg-[var(--planner-paper)] p-5 shadow-[0_18px_60px_rgba(78,64,52,0.18)] fade-in"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[var(--planner-line)]" />
+            <p className="planner-kicker text-center">新しく記録する</p>
+            <div className="mt-4 grid gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddMenu(false);
+                  setShowAddExpense(true);
+                }}
+                className="planner-choice"
+              >
+                <span className="planner-choice-icon bg-[rgba(106,132,195,0.14)] text-[var(--planner-accent)]">🧺</span>
+                <span>
+                  <strong className="block text-sm text-[var(--planner-text)]">ふだんの支出</strong>
+                  <span className="text-xs text-[var(--planner-subtle)]">食費や日用品など、毎日の家計簿</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddMenu(false);
+                  setShowAddMedical(true);
+                }}
+                className="planner-choice"
+              >
+                <span className="planner-choice-icon bg-[rgba(212,106,106,0.14)] text-[var(--planner-danger)]">🏥</span>
+                <span>
+                  <strong className="block text-sm text-[var(--planner-text)]">医療費</strong>
+                  <span className="text-xs text-[var(--planner-subtle)]">通院分や薬代を控除用に整理</span>
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ── 追加フォームモーダル ── */}
-      {showAddExpense && (
-        <AddExpenseModal
-          onClose={() => setShowAddExpense(false)}
-          onSaved={onSaved}
-        />
-      )}
-      {showAddMedical && (
-        <AddMedicalModal
-          onClose={() => setShowAddMedical(false)}
-          onSaved={onSaved}
-        />
-      )}
+      {showAddExpense && <AddExpenseModal onClose={() => setShowAddExpense(false)} onSaved={onSaved} />}
+      {showAddMedical && <AddMedicalModal onClose={() => setShowAddMedical(false)} onSaved={onSaved} />}
     </div>
-  );
-}
-
-// タブアイテム
-function TabItem({ icon, label, active, onClick }: {
-  icon: JSX.Element; label: string; active: boolean; onClick: () => void;
-}) {
-  return (
-    <button onClick={onClick}
-      className="flex-1 flex flex-col items-center justify-end pb-2 pt-1 gap-0.5">
-      <span style={{ color: active ? "#3B7DD8" : "#888899" }}>{icon}</span>
-      <span className="text-[10px] font-semibold"
-            style={{ color: active ? "#3B7DD8" : "#888899" }}>{label}</span>
-    </button>
   );
 }
