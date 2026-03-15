@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Image } from "lucide-react";
+import { Camera, CheckCheck, Download, Image, ScanText } from "lucide-react";
 import { v4 as uuid } from "uuid";
 import { db } from "@/db/database";
 import { todayString, fileToBase64 } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
+import { downloadDataUrl, recognizeExpenseReceipt, type ExpenseOcrDraft } from "@/utils/ocr";
 import type { Category, Member, ShopMaster } from "@/types";
 
 interface Props {
@@ -23,6 +24,11 @@ export default function AddExpenseModal({ onClose, onSaved }: Props) {
   const [date, setDate] = useState(todayString());
   const [memo, setMemo] = useState("");
   const [imageData, setImageData] = useState("");
+  const [ocrDraft, setOcrDraft] = useState<ExpenseOcrDraft | null>(null);
+  const [ocrText, setOcrText] = useState("");
+  const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrError, setOcrError] = useState("");
   const [newShop, setNewShop] = useState("");
   const [showNewShop, setShowNewShop] = useState(false);
 
@@ -51,6 +57,46 @@ export default function AddExpenseModal({ onClose, onSaved }: Props) {
   const handleImage = async (file: File) => {
     const base64 = await fileToBase64(file);
     setImageData(base64);
+    void runOcr(base64);
+  };
+
+  const runOcr = async (base64: string) => {
+    setOcrLoading(true);
+    setOcrError("");
+    try {
+      const result = await recognizeExpenseReceipt(base64);
+      setOcrDraft(result.draft);
+      setOcrText(result.text);
+      setOcrConfidence(result.confidence);
+    } catch (error) {
+      setOcrError(error instanceof Error ? error.message : "OCR に失敗しました");
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
+  const applyOcrDraft = () => {
+    if (!ocrDraft) return;
+
+    if (ocrDraft.amount) {
+      setAmount(String(ocrDraft.amount));
+    }
+    if (ocrDraft.date) {
+      setDate(ocrDraft.date);
+    }
+    if (ocrDraft.shopName) {
+      const matchedShopId = findMatchingShopId(shops, ocrDraft.shopName);
+      if (matchedShopId) {
+        setSelectedShop(matchedShopId);
+      } else {
+        setNewShop(ocrDraft.shopName);
+        setShowNewShop(true);
+        setMemo((current) => current || ocrDraft.shopName || "");
+      }
+    }
+    if (ocrDraft.memo) {
+      setMemo((current) => current || ocrDraft.memo || "");
+    }
   };
 
   const addShop = async () => {
@@ -142,6 +188,50 @@ export default function AddExpenseModal({ onClose, onSaved }: Props) {
               <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => event.target.files?.[0] && handleImage(event.target.files[0])} />
             </section>
 
+            {imageData && (
+              <section className="planner-form-panel">
+                <div className="planner-section-header">
+                  <div>
+                    <label className="planner-label mb-1">OCR 読み取り結果</label>
+                    <p className="text-xs text-[var(--planner-subtle)]">
+                      {ocrLoading ? "読み取り中..." : ocrConfidence !== null ? `信頼度 ${Math.round(ocrConfidence)}%` : "画像のみ保持中"}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => downloadDataUrl(imageData, `receipt-${Date.now()}.png`)} className="planner-icon-button" aria-label="写真を保存">
+                      <Download size={16} />
+                    </button>
+                    <button type="button" onClick={() => void runOcr(imageData)} className="planner-icon-button" aria-label="OCR再実行">
+                      <ScanText size={16} />
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
+                  <img src={imageData} alt="receipt preview" className="planner-tile h-40 w-full object-cover" />
+                  <div className="space-y-3">
+                    {ocrError && <p className="text-sm text-[var(--planner-danger)]">{ocrError}</p>}
+                    {ocrDraft && (
+                      <div className="rounded-[18px_8px_16px_8px] bg-white p-3">
+                        <p className="text-sm text-[var(--planner-text)]">金額: {ocrDraft.amount ? `¥${ocrDraft.amount.toLocaleString("ja-JP")}` : "未取得"}</p>
+                        <p className="text-sm text-[var(--planner-text)]">日付: {ocrDraft.date ?? "未取得"}</p>
+                        <p className="planner-wrap-text text-sm text-[var(--planner-text)]">店舗候補: {ocrDraft.shopName ?? "未取得"}</p>
+                        <button type="button" onClick={applyOcrDraft} className="planner-action mt-3 w-full bg-[var(--planner-accent)] text-white">
+                          <CheckCheck size={16} className="mr-2" />
+                          項目へ反映する
+                        </button>
+                      </div>
+                    )}
+                    {ocrText && (
+                      <details className="rounded-[18px_8px_16px_8px] bg-white p-3">
+                        <summary className="cursor-pointer text-sm font-semibold text-[var(--planner-subtle)]">読み取った文字を確認</summary>
+                        <pre className="planner-wrap-text mt-3 whitespace-pre-wrap text-xs text-[var(--planner-subtle)]">{ocrText}</pre>
+                      </details>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
+
             <section className="planner-form-panel">
               <label className="planner-label">金額</label>
               <div className="flex items-center rounded-[20px] border border-[var(--planner-line)] bg-white px-4">
@@ -169,7 +259,7 @@ export default function AddExpenseModal({ onClose, onSaved }: Props) {
                       key={category.id}
                       type="button"
                       onClick={() => setSelectedCategory(active ? "" : category.id)}
-                      className="rounded-[18px] border p-3 text-center"
+                      className="planner-tile border p-3 text-center"
                       style={{
                         borderColor: active ? category.colorHex : "var(--planner-line)",
                         backgroundColor: active ? `${category.colorHex}22` : "white",
@@ -258,4 +348,13 @@ export default function AddExpenseModal({ onClose, onSaved }: Props) {
       </div>
     </div>
   );
+}
+
+function findMatchingShopId(shops: ShopMaster[], candidate: string) {
+  const normalizedCandidate = normalizeMatch(candidate);
+  return shops.find((shop) => normalizedCandidate.includes(normalizeMatch(shop.name)) || normalizeMatch(shop.name).includes(normalizedCandidate))?.id;
+}
+
+function normalizeMatch(value: string) {
+  return value.replace(/\s/g, "").replace(/[株式会社有限会社]/g, "");
 }

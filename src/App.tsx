@@ -44,6 +44,7 @@ export default function App() {
     medical: <MedicalScreen key={refreshKey} />,
     settings: <SettingsScreen key={refreshKey} />,
   };
+  const showFab = !showAddMenu && !showAddExpense && !showAddMedical && tab !== "settings";
 
   return (
     <div className="min-h-screen overflow-hidden bg-[var(--planner-bg)]">
@@ -71,19 +72,21 @@ export default function App() {
           </div>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-24">
           <div className="planner-sheet">{screens[tab]}</div>
         </main>
 
-        <button
-          type="button"
-          onClick={() => setShowAddMenu(true)}
-          className="planner-fab"
-          aria-label="記録を追加"
-        >
-          <NotebookPen size={22} />
-          <span>記録する</span>
-        </button>
+        {showFab && (
+          <button
+            type="button"
+            onClick={() => setShowAddMenu(true)}
+            className="planner-fab"
+            aria-label="記録を追加"
+          >
+            <NotebookPen size={22} />
+            <span>記録する</span>
+          </button>
+        )}
       </div>
 
       {showAddMenu && (

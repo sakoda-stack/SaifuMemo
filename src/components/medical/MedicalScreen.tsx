@@ -87,26 +87,28 @@ export default function MedicalScreen() {
         </div>
       </section>
 
-      <section className="planner-card">
-        <div className="planner-section-header">
-          <div>
-            <p className="planner-kicker">家族ごとの確認</p>
-            <h2 className="planner-subheading">対象者フィルタ</h2>
+      {members.length > 0 && (
+        <section className="planner-card">
+          <div className="planner-section-header">
+            <div>
+              <p className="planner-kicker">家族ごとの確認</p>
+              <h2 className="planner-subheading">対象者フィルタ</h2>
+            </div>
           </div>
-        </div>
-        <div className="planner-pill-grid mt-4">
-          {[{ id: "all", shortName: "全員" }, ...members].map((member) => (
-            <button
-              key={member.id}
-              type="button"
-              onClick={() => setSelectedMember(member.id)}
-              className={`planner-pill ${selectedMember === member.id ? "planner-pill-active" : ""}`}
-            >
-              {member.shortName}
-            </button>
-          ))}
-        </div>
-      </section>
+          <div className="planner-pill-grid mt-4">
+            {[{ id: "all", shortName: "全員" }, ...members.filter((member) => member.shortName.trim())].map((member) => (
+              <button
+                key={member.id}
+                type="button"
+                onClick={() => setSelectedMember(member.id)}
+                className={`planner-pill ${selectedMember === member.id ? "planner-pill-active" : ""}`}
+              >
+                {member.shortName}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="planner-card">
         <div className="planner-section-header">
@@ -128,8 +130,8 @@ export default function MedicalScreen() {
                   <HeartPulse size={18} className="text-[var(--planner-danger)]" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-[var(--planner-text)]">{getHospitalName(record.hospitalId) || "未設定"}</p>
-                  <p className="text-xs text-[var(--planner-subtle)]">
+                  <p className="planner-wrap-text text-sm font-semibold text-[var(--planner-text)]">{getHospitalName(record.hospitalId) || "未設定"}</p>
+                  <p className="planner-wrap-text text-xs text-[var(--planner-subtle)]">
                     {getMemberName(record.memberId) || "未設定"} ・ {record.isTransportation ? "通院交通費" : record.medicalType}
                   </p>
                 </div>

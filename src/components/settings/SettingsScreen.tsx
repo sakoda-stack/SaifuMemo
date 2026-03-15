@@ -4,16 +4,9 @@ import { v4 as uuid } from "uuid";
 import { db } from "@/db/database";
 import { formatYen } from "@/utils";
 import { CATEGORY_COLOR_OPTIONS, CATEGORY_ICON_OPTIONS, resolveIcon } from "@/utils/icons";
-import type { Category, FixedExpenseRecord, FixedExpenseTemplate, Member, ShopMaster } from "@/types";
+import type { Category, Expense, FixedExpenseRecord, FixedExpenseTemplate, MedicalExpense, Member, ShopMaster } from "@/types";
 
 type Section = "menu" | "members" | "hospitals" | "shops" | "categories" | "fixed" | "fixed-month" | "checklist";
-
-const CHECKLIST = [
-  { id: "1", title: "医療費明細をすべて入力した", sub: "病院代、薬代、通院交通費まで確認" },
-  { id: "2", title: "補填された金額を入力した", sub: "保険金や高額療養費がある場合のみ" },
-  { id: "3", title: "家族全員分を確認した", sub: "医療費タブで人別に見直し" },
-  { id: "4", title: "CSV を出力して確認した", sub: "e-Tax に取り込む前に Excel で確認" },
-];
 
 export default function SettingsScreen() {
   const [section, setSection] = useState<Section>("menu");
@@ -379,7 +372,7 @@ function CategoriesSection({ onBack }: { onBack: () => void }) {
                   key={iconName}
                   type="button"
                   onClick={() => setIcon(iconName)}
-                  className="flex h-11 items-center justify-center rounded-[16px] border"
+                  className="planner-tile flex h-11 items-center justify-center border"
                   style={{
                     borderColor: active ? colorHex : "var(--planner-line)",
                     backgroundColor: active ? `${colorHex}22` : "white",
@@ -398,7 +391,7 @@ function CategoriesSection({ onBack }: { onBack: () => void }) {
                 key={color}
                 type="button"
                 onClick={() => setColorHex(color)}
-                className="h-10 rounded-[14px] border-2"
+                className="planner-tile h-10 border-2"
                 style={{ backgroundColor: color, borderColor: colorHex === color ? "white" : "transparent", boxShadow: colorHex === color ? `0 0 0 2px ${color}` : "none" }}
               />
             ))}
@@ -596,40 +589,118 @@ function FixedMonthSection({ onBack, year, month }: { onBack: () => void; year: 
 }
 
 function ChecklistSection({ onBack }: { onBack: () => void }) {
-  const [checks, setChecks] = useState<Record<string, boolean>>({});
-  const done = Object.values(checks).filter(Boolean).length;
+  const [items, setItems] = useState<Array<ReceiptChecklistItem>>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      const [expenses, medicals, members, categories] = await Promise.all([
+        db.expenses.toArray(),
+        db.medicalExpenses.toArray(),
+        db.members.toArray(),
+        db.categories.toArray(),
+      ]);
+
+      const memberMap = new Map(members.map((member) => [member.id, member.shortName]));
+      const categoryMap = new Map(categories.map((category) => [category.id, category.name]));
+
+      const expenseItems: ReceiptChecklistItem[] = expenses.map((expense) => ({
+        id: expense.id,
+        kind: "expense",
+        date: expense.date,
+        title: expense.shopName || expense.memo || "支出",
+        subtitle: `${memberMap.get(expense.memberId ?? "") || "未設定"} ・ ${categoryMap.get(expense.categoryId ?? "") || "カテゴリ未設定"}`,
+        amount: expense.amount,
+        checked: expense.isChecked,
+        imageData: expense.receiptImageData,
+      }));
+
+      const medicalItems: ReceiptChecklistItem[] = medicals.map((medical) => ({
+        id: medical.id,
+        kind: "medical",
+        date: medical.paymentDate,
+        title: medical.hospitalName || "医療費",
+        subtitle: `${memberMap.get(medical.memberId ?? "") || "未設定"} ・ ${medical.isTransportation ? "通院交通費" : medical.medicalType}`,
+        amount: medical.amount,
+        checked: medical.isChecked,
+        imageData: medical.receiptImageData,
+      }));
+
+      setItems([...expenseItems, ...medicalItems].sort((left, right) => right.date.localeCompare(left.date)));
+    };
+
+    load();
+  }, []);
+
+  const done = items.filter((item) => item.checked).length;
+  const pendingItems = items.filter((item) => !item.checked);
+  const completedItems = items.filter((item) => item.checked);
+
+  const toggleCheck = async (item: ReceiptChecklistItem) => {
+    if (item.kind === "expense") {
+      await db.expenses.update(item.id, { isChecked: !item.checked });
+    } else {
+      await db.medicalExpenses.update(item.id, { isChecked: !item.checked });
+    }
+
+    setItems((rows) => rows.map((row) => (row.id === item.id && row.kind === item.kind ? { ...row, checked: !row.checked } : row)));
+  };
 
   return (
     <SectionLayout title="申告チェック" onBack={onBack}>
       <div className="planner-card bg-[var(--planner-soft)]">
         <div className="h-2 overflow-hidden rounded-full bg-white">
-          <div className="h-2 rounded-full bg-[var(--planner-accent)]" style={{ width: `${(done / CHECKLIST.length) * 100}%` }} />
+          <div className="h-2 rounded-full bg-[var(--planner-accent)]" style={{ width: `${items.length === 0 ? 0 : (done / items.length) * 100}%` }} />
         </div>
         <p className="mt-2 text-right text-xs text-[var(--planner-subtle)]">
-          {done}/{CHECKLIST.length} 完了
+          {done}/{items.length} 照合済み
         </p>
       </div>
-      <div className="space-y-3">
-        {CHECKLIST.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setChecks((current) => ({ ...current, [item.id]: !current[item.id] }))}
-            className="planner-row w-full text-left"
-          >
-            {checks[item.id] ? (
-              <CheckCircle2 size={22} className="shrink-0 text-[var(--planner-success)]" />
-            ) : (
-              <Circle size={22} className="shrink-0 text-[var(--planner-line)]" />
-            )}
-            <span className="min-w-0 flex-1">
-              <strong className={`block text-sm ${checks[item.id] ? "line-through text-[var(--planner-subtle)]" : "text-[var(--planner-text)]"}`}>{item.title}</strong>
-              <span className="text-xs text-[var(--planner-subtle)]">{item.sub}</span>
-            </span>
-          </button>
-        ))}
-      </div>
+      <ChecklistGroup title="未照合" items={pendingItems} onToggle={toggleCheck} />
+      {completedItems.length > 0 && <ChecklistGroup title="照合済み" items={completedItems} onToggle={toggleCheck} />}
     </SectionLayout>
+  );
+}
+
+function ChecklistGroup({
+  title,
+  items,
+  onToggle,
+}: {
+  title: string;
+  items: ReceiptChecklistItem[];
+  onToggle: (item: ReceiptChecklistItem) => void;
+}) {
+  return (
+    <section className="planner-card">
+      <p className="planner-kicker">{title}</p>
+      <div className="mt-4 space-y-3">
+        {items.length === 0 ? (
+          <p className="rounded-[22px] bg-[var(--planner-soft)] px-4 py-6 text-center text-sm text-[var(--planner-subtle)]">対象の明細はありません。</p>
+        ) : (
+          items.map((item) => (
+            <button key={`${item.kind}-${item.id}`} type="button" onClick={() => onToggle(item)} className="planner-row w-full text-left">
+              {item.checked ? (
+                <CheckCircle2 size={22} className="shrink-0 text-[var(--planner-success)]" />
+              ) : (
+                <Circle size={22} className="shrink-0 text-[var(--planner-line)]" />
+              )}
+              {item.imageData ? (
+                <img src={item.imageData} alt="receipt" className="planner-tile h-16 w-16 shrink-0 object-cover" />
+              ) : (
+                <div className="planner-tile flex h-16 w-16 shrink-0 items-center justify-center bg-[var(--planner-soft)] text-xs text-[var(--planner-subtle)]">
+                  画像なし
+                </div>
+              )}
+              <span className="min-w-0 flex-1">
+                <strong className="planner-wrap-text block text-sm text-[var(--planner-text)]">{item.title}</strong>
+                <span className="planner-wrap-text block text-xs text-[var(--planner-subtle)]">{item.date} ・ {item.subtitle}</span>
+                <span className="mt-1 block text-sm font-semibold text-[var(--planner-text)]">{formatYen(item.amount)}</span>
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -694,4 +765,15 @@ function MasterRow({
       </button>
     </div>
   );
+}
+
+interface ReceiptChecklistItem {
+  amount: number;
+  checked: boolean;
+  date: string;
+  id: string;
+  imageData?: Expense["receiptImageData"] | MedicalExpense["receiptImageData"];
+  kind: "expense" | "medical";
+  subtitle: string;
+  title: string;
 }

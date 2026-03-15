@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, HeartPulse, Image } from "lucide-react";
+import { Camera, CheckCheck, Download, HeartPulse, Image, ScanText } from "lucide-react";
 import { v4 as uuid } from "uuid";
 import { db } from "@/db/database";
 import { todayString, fileToBase64, MEDICAL_TYPES } from "@/utils";
+import { downloadDataUrl, recognizeMedicalReceipt, type MedicalOcrDraft } from "@/utils/ocr";
 import type { MedicalType, Member, ShopMaster } from "@/types";
 
 interface Props {
@@ -21,6 +22,11 @@ export default function AddMedicalModal({ onClose, onSaved }: Props) {
   const [reimbursedAmount, setReimbursedAmount] = useState("");
   const [date, setDate] = useState(todayString());
   const [imageData, setImageData] = useState("");
+  const [ocrDraft, setOcrDraft] = useState<MedicalOcrDraft | null>(null);
+  const [ocrText, setOcrText] = useState("");
+  const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrError, setOcrError] = useState("");
   const [newHospital, setNewHospital] = useState("");
   const [showNewHospital, setShowNewHospital] = useState(false);
 
@@ -62,6 +68,51 @@ export default function AddMedicalModal({ onClose, onSaved }: Props) {
     setSelectedHospital(hospital.id);
     setNewHospital("");
     setShowNewHospital(false);
+  };
+
+  const handleImage = async (file: File) => {
+    const base64 = await fileToBase64(file);
+    setImageData(base64);
+    void runOcr(base64);
+  };
+
+  const runOcr = async (base64: string) => {
+    setOcrLoading(true);
+    setOcrError("");
+    try {
+      const result = await recognizeMedicalReceipt(base64);
+      setOcrDraft(result.draft);
+      setOcrText(result.text);
+      setOcrConfidence(result.confidence);
+    } catch (error) {
+      setOcrError(error instanceof Error ? error.message : "OCR に失敗しました");
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
+  const applyOcrDraft = () => {
+    if (!ocrDraft) return;
+
+    if (ocrDraft.amount) {
+      setAmount(String(ocrDraft.amount));
+    }
+    if (ocrDraft.date) {
+      setDate(ocrDraft.date);
+    }
+    if (ocrDraft.hospitalName) {
+      const matchedHospitalId = findMatchingHospitalId(hospitals, ocrDraft.hospitalName);
+      if (matchedHospitalId) {
+        setSelectedHospital(matchedHospitalId);
+      } else {
+        setNewHospital(ocrDraft.hospitalName);
+        setShowNewHospital(true);
+      }
+    }
+    if (ocrDraft.medicalType) {
+      setMedicalType(ocrDraft.medicalType);
+      setIsTransportation(ocrDraft.medicalType === "通院交通費");
+    }
   };
 
   const save = async () => {
@@ -141,9 +192,54 @@ export default function AddMedicalModal({ onClose, onSaved }: Props) {
                 </button>
                 <div className="planner-action bg-[var(--planner-soft)] text-[var(--planner-subtle)]">{imageData ? "添付済み" : "任意"}</div>
               </div>
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => event.target.files?.[0] && fileToBase64(event.target.files[0]).then(setImageData)} />
-              <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => event.target.files?.[0] && fileToBase64(event.target.files[0]).then(setImageData)} />
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => event.target.files?.[0] && handleImage(event.target.files[0])} />
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => event.target.files?.[0] && handleImage(event.target.files[0])} />
             </section>
+
+            {imageData && (
+              <section className="planner-form-panel">
+                <div className="planner-section-header">
+                  <div>
+                    <label className="planner-label mb-1">OCR 読み取り結果</label>
+                    <p className="text-xs text-[var(--planner-subtle)]">
+                      {ocrLoading ? "読み取り中..." : ocrConfidence !== null ? `信頼度 ${Math.round(ocrConfidence)}%` : "画像のみ保持中"}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => downloadDataUrl(imageData, `medical-receipt-${Date.now()}.png`)} className="planner-icon-button" aria-label="写真を保存">
+                      <Download size={16} />
+                    </button>
+                    <button type="button" onClick={() => void runOcr(imageData)} className="planner-icon-button" aria-label="OCR再実行">
+                      <ScanText size={16} />
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
+                  <img src={imageData} alt="medical receipt preview" className="planner-tile h-40 w-full object-cover" />
+                  <div className="space-y-3">
+                    {ocrError && <p className="text-sm text-[var(--planner-danger)]">{ocrError}</p>}
+                    {ocrDraft && (
+                      <div className="rounded-[18px_8px_16px_8px] bg-white p-3">
+                        <p className="text-sm text-[var(--planner-text)]">金額: {ocrDraft.amount ? `¥${ocrDraft.amount.toLocaleString("ja-JP")}` : "未取得"}</p>
+                        <p className="text-sm text-[var(--planner-text)]">日付: {ocrDraft.date ?? "未取得"}</p>
+                        <p className="planner-wrap-text text-sm text-[var(--planner-text)]">病院候補: {ocrDraft.hospitalName ?? "未取得"}</p>
+                        <p className="text-sm text-[var(--planner-text)]">区分候補: {ocrDraft.medicalType ?? "未取得"}</p>
+                        <button type="button" onClick={applyOcrDraft} className="planner-action mt-3 w-full bg-[var(--planner-danger)] text-white">
+                          <CheckCheck size={16} className="mr-2" />
+                          項目へ反映する
+                        </button>
+                      </div>
+                    )}
+                    {ocrText && (
+                      <details className="rounded-[18px_8px_16px_8px] bg-white p-3">
+                        <summary className="cursor-pointer text-sm font-semibold text-[var(--planner-subtle)]">読み取った文字を確認</summary>
+                        <pre className="planner-wrap-text mt-3 whitespace-pre-wrap text-xs text-[var(--planner-subtle)]">{ocrText}</pre>
+                      </details>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
 
             <section className="planner-form-panel">
               <label className="planner-label">支払った金額</label>
@@ -274,4 +370,13 @@ export default function AddMedicalModal({ onClose, onSaved }: Props) {
       </div>
     </div>
   );
+}
+
+function findMatchingHospitalId(hospitals: ShopMaster[], candidate: string) {
+  const normalizedCandidate = normalizeMatch(candidate);
+  return hospitals.find((hospital) => normalizedCandidate.includes(normalizeMatch(hospital.name)) || normalizeMatch(hospital.name).includes(normalizedCandidate))?.id;
+}
+
+function normalizeMatch(value: string) {
+  return value.replace(/\s/g, "").replace(/[株式会社有限会社]/g, "");
 }

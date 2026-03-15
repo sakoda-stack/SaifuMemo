@@ -36,6 +36,7 @@ body {
     linear-gradient(180deg, #d7cec2 0%, #cbc1b5 100%);
   font-family: "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif;
   -webkit-tap-highlight-color: transparent;
+  overflow-y: auto;
   overscroll-behavior-y: none;
 }
 
@@ -72,7 +73,7 @@ a {
 .planner-sheet {
   min-height: 100%;
   border: 1px solid rgba(255, 253, 248, 0.45);
-  border-radius: 32px;
+  border-radius: 34px 14px 32px 14px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(254, 250, 244, 0.98) 100%);
   box-shadow:
@@ -90,7 +91,7 @@ a {
 
 .planner-card {
   border: 1px solid var(--planner-line);
-  border-radius: 28px;
+  border-radius: 28px 12px 24px 12px;
   background: var(--planner-paper);
   box-shadow: 0 12px 28px rgba(89, 72, 55, 0.06);
   padding: 18px;
@@ -133,7 +134,7 @@ a {
   justify-content: center;
   gap: 4px;
   border: 1px solid rgba(81, 70, 59, 0.08);
-  border-radius: 18px 18px 10px 10px;
+  border-radius: 18px 18px 8px 8px;
   padding: 10px 6px;
   background: rgba(168, 157, 144, 0.9);
   color: rgba(255, 252, 247, 0.88);
@@ -165,6 +166,7 @@ a {
   font-size: 14px;
   font-weight: 700;
   box-shadow: 0 16px 30px rgba(106, 132, 195, 0.32);
+  max-width: calc(100vw - 32px);
 }
 
 .planner-choice {
@@ -173,7 +175,7 @@ a {
   gap: 12px;
   width: 100%;
   border: 1px solid var(--planner-line);
-  border-radius: 22px;
+  border-radius: 22px 10px 18px 10px;
   background: var(--planner-soft);
   padding: 14px;
   text-align: left;
@@ -186,7 +188,7 @@ a {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border-radius: 16px;
+  border-radius: 16px 6px 14px 6px;
   font-size: 22px;
 }
 
@@ -202,7 +204,7 @@ a {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--planner-line);
-  border-radius: 16px;
+  border-radius: 16px 6px 14px 6px;
   background: var(--planner-paper);
   color: var(--planner-text);
 }
@@ -234,7 +236,7 @@ a {
   align-items: center;
   gap: 12px;
   border: 1px solid var(--planner-line);
-  border-radius: 22px;
+  border-radius: 22px 10px 18px 10px;
   background: white;
   padding: 12px;
 }
@@ -244,7 +246,7 @@ a {
 }
 
 .planner-calendar-cell {
-  min-height: 88px;
+  min-height: 104px;
   background: var(--planner-paper);
   padding: 8px;
   text-align: left;
@@ -262,7 +264,7 @@ a {
 
 .planner-form-panel {
   border: 1px solid var(--planner-line);
-  border-radius: 24px;
+  border-radius: 24px 10px 22px 10px;
   background: var(--planner-soft);
   padding: 14px;
 }
@@ -270,7 +272,7 @@ a {
 .planner-field {
   width: 100%;
   border: 1px solid var(--planner-line);
-  border-radius: 18px;
+  border-radius: 18px 8px 16px 8px;
   background: white;
   color: var(--planner-text);
   padding: 12px 14px;
@@ -288,10 +290,19 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 18px;
+  border-radius: 18px 8px 16px 8px;
   padding: 12px 16px;
   font-size: 14px;
   font-weight: 700;
+}
+
+.planner-tile {
+  border-radius: 20px 8px 16px 8px;
+}
+
+.planner-wrap-text {
+  white-space: normal;
+  word-break: break-word;
 }
 
 .planner-section-header {
@@ -342,6 +353,6 @@ a {
   }
 
   .planner-calendar-cell {
-    min-height: 76px;
+    min-height: 88px;
   }
 }

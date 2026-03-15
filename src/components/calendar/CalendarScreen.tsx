@@ -146,12 +146,6 @@ export default function CalendarScreen() {
         </button>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <SummaryCard label="今月の総額" value={formatYen(monthTotal)} note="入力済みの支出と医療費" />
-        <SummaryCard label="記録件数" value={`${monthEntries.length}件`} note="家計簿と医療費の合算" />
-        <SummaryCard label="動いた日" value={`${activeDays}日`} note="記録のあった日だけ色づけ" />
-      </div>
-
       <section className="planner-card overflow-hidden">
         <div className="grid grid-cols-7 border-b border-[var(--planner-line)] bg-[var(--planner-week)]">
           {WEEKDAYS.map((weekday) => (
@@ -215,6 +209,12 @@ export default function CalendarScreen() {
         </div>
       </section>
 
+      <div className="grid gap-3 md:grid-cols-3">
+        <SummaryCard label="今月の総額" value={formatYen(monthTotal)} note="入力済みの支出と医療費" />
+        <SummaryCard label="記録件数" value={`${monthEntries.length}件`} note="家計簿と医療費の合算" />
+        <SummaryCard label="動いた日" value={`${activeDays}日`} note="記録のあった日だけ色づけ" />
+      </div>
+
       <section className="planner-card">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
@@ -243,8 +243,8 @@ export default function CalendarScreen() {
                     <Icon size={18} color={entry.color} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-[var(--planner-text)]">{entry.title}</p>
-                    <p className="text-xs text-[var(--planner-subtle)]">{entry.subtitle}</p>
+                    <p className="planner-wrap-text text-sm font-semibold text-[var(--planner-text)]">{entry.title}</p>
+                    <p className="planner-wrap-text text-xs text-[var(--planner-subtle)]">{entry.subtitle}</p>
                   </div>
                   <p className="text-sm font-bold text-[var(--planner-text)]">{formatYen(entry.amount)}</p>
                 </div>
