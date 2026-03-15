@@ -12,6 +12,7 @@ import type {
   MedicalExpense,
   FixedExpenseTemplate,
   FixedExpenseRecord,
+  ReceiptItemObservation,
 } from "@/types";
 
 class SaifuMemoDB extends Dexie {
@@ -22,6 +23,7 @@ class SaifuMemoDB extends Dexie {
   medicalExpenses!: Table<MedicalExpense, string>;
   fixedTemplates!: Table<FixedExpenseTemplate, string>;
   fixedRecords!: Table<FixedExpenseRecord, string>;
+  receiptItemObservations!: Table<ReceiptItemObservation, string>;
 
   constructor() {
     super("SaifuMemoDB");
@@ -34,6 +36,17 @@ class SaifuMemoDB extends Dexie {
       medicalExpenses: "id, paymentDate, memberId, hospitalId, fiscalYear, isChecked",
       fixedTemplates: "id, sortOrder, isActive",
       fixedRecords: "id, [year+month], templateId",
+    });
+
+    this.version(2).stores({
+      members: "id, sortOrder, isActive",
+      categories: "id, sortOrder, isMedical, isFixed, isActive",
+      shopMasters: "id, shopType, usageCount, isActive",
+      expenses: "id, date, memberId, categoryId, shopId, isChecked, createdAt",
+      medicalExpenses: "id, paymentDate, memberId, hospitalId, fiscalYear, isChecked",
+      fixedTemplates: "id, sortOrder, isActive",
+      fixedRecords: "id, [year+month], templateId",
+      receiptItemObservations: "id, expenseId, expenseDate, normalizedItemName, shopName, unitPrice, totalPrice, createdAt",
     });
   }
 }
@@ -193,4 +206,26 @@ export async function generateFixedRecords(): Promise<void> {
       });
     }
   }
+}
+
+export async function replaceReceiptItemObservations(
+  expenseId: string,
+  observations: Omit<ReceiptItemObservation, "id" | "createdAt" | "expenseId">[],
+): Promise<void> {
+  await db.transaction("rw", db.receiptItemObservations, async () => {
+    await db.receiptItemObservations.where("expenseId").equals(expenseId).delete();
+
+    if (observations.length === 0) {
+      return;
+    }
+
+    await db.receiptItemObservations.bulkAdd(
+      observations.map((observation) => ({
+        id: uuid(),
+        expenseId,
+        createdAt: new Date(),
+        ...observation,
+      })),
+    );
+  });
 }

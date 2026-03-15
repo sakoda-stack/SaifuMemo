@@ -169,6 +169,20 @@ a {
   max-width: calc(100vw - 32px);
 }
 
+.planner-header-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(106, 132, 195, 0.18);
+  border-radius: 18px 8px 16px 8px;
+  background: rgba(255, 247, 236, 0.92);
+  color: var(--planner-accent);
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 10px 22px rgba(89, 72, 55, 0.08);
+}
+
 .planner-choice {
   display: flex;
   align-items: center;
@@ -298,6 +312,61 @@ a {
 
 .planner-tile {
   border-radius: 20px 8px 16px 8px;
+}
+
+.planner-note-card {
+  border: 1px solid rgba(199, 183, 166, 0.8);
+  border-radius: 24px 10px 18px 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(248, 242, 233, 0.98));
+  box-shadow: 0 10px 24px rgba(89, 72, 55, 0.06);
+  padding: 14px;
+}
+
+.planner-hero-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.planner-ruled-paper {
+  position: relative;
+  padding: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(250, 244, 236, 0.98)),
+    repeating-linear-gradient(
+      180deg,
+      transparent 0,
+      transparent 30px,
+      rgba(186, 173, 159, 0.16) 30px,
+      rgba(186, 173, 159, 0.16) 31px
+    );
+}
+
+.planner-ruled-paper::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 20px;
+  width: 2px;
+  background: rgba(212, 106, 106, 0.18);
+}
+
+.planner-stamp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 18px 6px 16px 6px;
+  background: var(--planner-soft);
+  color: var(--planner-text);
+}
+
+.planner-stamp-soft {
+  background: rgba(106, 132, 195, 0.12);
+  color: var(--planner-accent);
 }
 
 .planner-wrap-text {

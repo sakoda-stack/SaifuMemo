@@ -64,7 +64,7 @@ export default function SettingsScreen() {
 
       <MenuGroup
         title="申告準備"
-        items={[{ icon: "✅", label: "申告チェック", note: "提出前の抜け漏れ確認", onTap: () => setSection("checklist") }]}
+        items={[{ icon: "🧾", label: "レシート照合", note: "入力内容と実レシートを確認", onTap: () => setSection("checklist") }]}
       />
     </div>
   );
@@ -646,7 +646,7 @@ function ChecklistSection({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <SectionLayout title="申告チェック" onBack={onBack}>
+    <SectionLayout title="レシート照合" onBack={onBack}>
       <div className="planner-card bg-[var(--planner-soft)]">
         <div className="h-2 overflow-hidden rounded-full bg-white">
           <div className="h-2 rounded-full bg-[var(--planner-accent)]" style={{ width: `${items.length === 0 ? 0 : (done / items.length) * 100}%` }} />

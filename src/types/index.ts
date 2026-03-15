@@ -47,6 +47,22 @@ export interface Expense {
   updatedAt: Date;
 }
 
+export interface ReceiptItemObservation {
+  id: string;
+  expenseId: string;
+  expenseDate: string;
+  itemName: string;
+  normalizedItemName: string;
+  shopId?: string;
+  shopName?: string;
+  totalPrice: number;
+  quantity?: number;
+  quantityUnit?: string;
+  unitPrice?: number;
+  sourceText: string;
+  createdAt: Date;
+}
+
 export interface MedicalExpense {
   id: string;
   paymentDate: string;    // YYYY-MM-DD

@@ -45,7 +45,10 @@ export default function MedicalScreen() {
 
   return (
     <div className="planner-page slide-up">
-      <section className="planner-card bg-[linear-gradient(135deg,rgba(212,106,106,0.96),rgba(184,89,89,0.92))] text-white">
+      <section
+        className="planner-card text-white"
+        style={{ background: "linear-gradient(135deg, rgba(212,106,106,0.96), rgba(184,89,89,0.92))" }}
+      >
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold tracking-[0.08em] text-white/80">医療費控除の確認</p>

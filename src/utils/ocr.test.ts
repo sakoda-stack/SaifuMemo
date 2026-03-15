@@ -4,15 +4,24 @@ import { parseExpenseOcrText, parseMedicalOcrText } from "@/utils/ocr";
 describe("OCR parsers", () => {
   it("extracts expense receipt candidates", () => {
     const draft = parseExpenseOcrText(`
-      イオン流山おおたかの森
+      イオン岡崎おおたかの杜
       2026/03/15 12:11
-      食品
-      合計 ¥4,580
+      おむつ Mサイズ 58枚 1280
+      牛乳 1000ml 198
+      合計
+      4,580
     `);
 
-    expect(draft.shopName).toBe("イオン流山おおたかの森");
+    expect(draft.shopName).toBe("イオン岡崎おおたかの杜");
     expect(draft.date).toBe("2026-03-15");
     expect(draft.amount).toBe(4580);
+    expect(draft.items[0]?.normalizedItemName).toContain("おむつmサイズ");
+    expect(draft.items[0]?.quantity).toBe(58);
+    expect(draft.items[0]?.quantityUnit).toBe("枚");
+    expect(draft.items[0]?.unitPrice).toBeCloseTo(22.07, 2);
+    expect(draft.items[1]?.normalizedItemName).toContain("牛乳");
+    expect(draft.items[1]?.quantity).toBe(1000);
+    expect(draft.items[1]?.quantityUnit).toBe("ml");
   });
 
   it("extracts medical receipt candidates", () => {
@@ -20,7 +29,7 @@ describe("OCR parsers", () => {
       おおたかの森こどもクリニック
       2026年3月12日
       診療費
-      領収金額 2,300円
+      合計 2,300円
     `);
 
     expect(draft.hospitalName).toBe("おおたかの森こどもクリニック");

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Camera, CheckCheck, Download, Image, ScanText } from "lucide-react";
 import { v4 as uuid } from "uuid";
-import { db } from "@/db/database";
+import { db, replaceReceiptItemObservations } from "@/db/database";
 import { todayString, fileToBase64 } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
-import { downloadDataUrl, recognizeExpenseReceipt, type ExpenseOcrDraft } from "@/utils/ocr";
+import { downloadDataUrl, recognizeExpenseReceipt, toObservationPayload, type ExpenseOcrDraft } from "@/utils/ocr";
 import type { Category, Member, ShopMaster } from "@/types";
 
 interface Props {
@@ -127,14 +127,15 @@ export default function AddExpenseModal({ onClose, onSaved }: Props) {
     }
 
     const shopName = shops.find((shop) => shop.id === selectedShop)?.name;
+    const expenseId = uuid();
     await db.expenses.add({
-      id: uuid(),
+      id: expenseId,
       date,
       amount: parsedAmount,
       memo,
       isChecked: false,
       isFixed: false,
-      productName: "",
+      productName: ocrDraft?.items?.[0]?.itemName || "",
       receiptImageData: imageData || undefined,
       memberId: selectedMember || undefined,
       categoryId: selectedCategory || undefined,
@@ -143,6 +144,13 @@ export default function AddExpenseModal({ onClose, onSaved }: Props) {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+
+    if (ocrDraft?.items?.length) {
+      await replaceReceiptItemObservations(
+        expenseId,
+        toObservationPayload(ocrDraft, date, shopName, selectedShop || undefined),
+      );
+    }
 
     if (selectedShop) {
       await db.shopMasters.where("id").equals(selectedShop).modify((shop) => {
@@ -215,6 +223,16 @@ export default function AddExpenseModal({ onClose, onSaved }: Props) {
                         <p className="text-sm text-[var(--planner-text)]">金額: {ocrDraft.amount ? `¥${ocrDraft.amount.toLocaleString("ja-JP")}` : "未取得"}</p>
                         <p className="text-sm text-[var(--planner-text)]">日付: {ocrDraft.date ?? "未取得"}</p>
                         <p className="planner-wrap-text text-sm text-[var(--planner-text)]">店舗候補: {ocrDraft.shopName ?? "未取得"}</p>
+                        <p className="text-sm text-[var(--planner-text)]">商品候補: {ocrDraft.items.length}件</p>
+                        {ocrDraft.items.length > 0 && (
+                          <div className="mt-2 rounded-[16px_8px_14px_8px] bg-[var(--planner-soft)] p-2 text-xs text-[var(--planner-subtle)]">
+                            {ocrDraft.items.slice(0, 3).map((item) => (
+                              <p key={`${item.itemName}-${item.totalPrice}`} className="planner-wrap-text">
+                                {item.itemName} {item.unitPrice ? `(${item.unitPrice}/${item.quantityUnit})` : ""} - ¥{item.totalPrice.toLocaleString("ja-JP")}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                         <button type="button" onClick={applyOcrDraft} className="planner-action mt-3 w-full bg-[var(--planner-accent)] text-white">
                           <CheckCheck size={16} className="mr-2" />
                           項目へ反映する
