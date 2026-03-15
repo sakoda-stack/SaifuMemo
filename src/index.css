@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* iPhoneのノッチ・ホームバー対応 */
+:root {
+  --safe-area-top: env(safe-area-inset-top);
+  --safe-area-bottom: env(safe-area-inset-bottom);
+}
+
+body {
+  @apply bg-app-bg font-sans;
+  -webkit-tap-highlight-color: transparent; /* タップ時の青枠を消す */
+  overscroll-behavior: none; /* プルリフレッシュを無効化 */
+}
+
+/* スクロールバーを消す（モバイルアプリっぽく） */
+::-webkit-scrollbar { display: none; }
+* { scrollbar-width: none; }
+
+/* ボタンのタップ領域を最低44pxに */
+button, a { min-height: 44px; }
+
+/* アニメーション */
+.slide-up {
+  animation: slideUp 0.25s ease-out;
+}
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
