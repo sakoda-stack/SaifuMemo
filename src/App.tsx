@@ -1,22 +1,25 @@
 import { useEffect, useState } from "react";
-import { Calendar, HeartPulse, List, NotebookPen, Settings, Wallet } from "lucide-react";
+import { Calendar, HeartPulse, List, NotebookPen, Settings, Store, Wallet } from "lucide-react";
 import { generateFixedRecords, seedIfNeeded } from "@/db/database";
 import AddExpenseModal from "@/components/add/AddExpenseModal";
 import AddMedicalModal from "@/components/add/AddMedicalModal";
 import CalendarScreen from "@/components/calendar/CalendarScreen";
+import CompareScreen from "@/components/compare/CompareScreen";
 import HomeScreen from "@/components/home/HomeScreen";
 import ListScreen from "@/components/list/ListScreen";
 import MedicalScreen from "@/components/medical/MedicalScreen";
 import SettingsScreen from "@/components/settings/SettingsScreen";
+import { todayString } from "@/utils";
 
-type Tab = "home" | "list" | "calendar" | "medical" | "settings";
+type Tab = "home" | "compare" | "list" | "calendar" | "medical" | "settings";
 
 const TAB_ITEMS: Array<{ id: Tab; label: string; icon: JSX.Element }> = [
-  { id: "home", label: "今日の家計", icon: <Wallet size={18} /> },
-  { id: "list", label: "支出一覧", icon: <List size={18} /> },
+  { id: "home", label: "ホーム", icon: <Wallet size={18} /> },
+  { id: "compare", label: "比較", icon: <Store size={18} /> },
+  { id: "list", label: "一覧", icon: <List size={18} /> },
   { id: "calendar", label: "カレンダー", icon: <Calendar size={18} /> },
   { id: "medical", label: "医療費", icon: <HeartPulse size={18} /> },
-  { id: "settings", label: "整える", icon: <Settings size={18} /> },
+  { id: "settings", label: "設定", icon: <Settings size={18} /> },
 ];
 
 export default function App() {
@@ -25,6 +28,7 @@ export default function App() {
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [showAddMedical, setShowAddMedical] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [recordDate, setRecordDate] = useState(todayString());
 
   useEffect(() => {
     seedIfNeeded();
@@ -34,16 +38,36 @@ export default function App() {
   const onSaved = () => {
     setShowAddExpense(false);
     setShowAddMedical(false);
+    setShowAddMenu(false);
     setRefreshKey((current) => current + 1);
+  };
+
+  const openAddMenu = (date?: string) => {
+    setRecordDate(date ?? todayString());
+    setShowAddMenu(true);
+  };
+
+  const openExpenseModal = (date?: string) => {
+    setRecordDate(date ?? todayString());
+    setShowAddMenu(false);
+    setShowAddExpense(true);
+  };
+
+  const openMedicalModal = (date?: string) => {
+    setRecordDate(date ?? todayString());
+    setShowAddMenu(false);
+    setShowAddMedical(true);
   };
 
   const screens: Record<Tab, JSX.Element> = {
     home: <HomeScreen key={refreshKey} />,
+    compare: <CompareScreen key={refreshKey} />,
     list: <ListScreen key={refreshKey} />,
-    calendar: <CalendarScreen key={refreshKey} />,
+    calendar: <CalendarScreen key={refreshKey} onAddExpense={openExpenseModal} onAddMedical={openMedicalModal} />,
     medical: <MedicalScreen key={refreshKey} />,
     settings: <SettingsScreen key={refreshKey} />,
   };
+
   const showRecordAction = !showAddMenu && !showAddExpense && !showAddMedical && tab !== "settings";
 
   return (
@@ -74,7 +98,7 @@ export default function App() {
             <div className="mt-2 flex justify-end">
               <button
                 type="button"
-                onClick={() => setShowAddMenu(true)}
+                onClick={() => openAddMenu()}
                 className="planner-header-action"
                 aria-label="記録を追加"
               >
@@ -100,32 +124,18 @@ export default function App() {
             <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[var(--planner-line)]" />
             <p className="planner-kicker text-center">新しく記録する</p>
             <div className="mt-4 grid gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAddMenu(false);
-                  setShowAddExpense(true);
-                }}
-                className="planner-choice"
-              >
-                <span className="planner-choice-icon bg-[rgba(106,132,195,0.14)] text-[var(--planner-accent)]">🧺</span>
+              <button type="button" onClick={() => openExpenseModal(recordDate)} className="planner-choice">
+                <span className="planner-choice-icon bg-[rgba(106,132,195,0.14)] text-[var(--planner-accent)]">🛒</span>
                 <span>
                   <strong className="block text-sm text-[var(--planner-text)]">ふだんの支出</strong>
-                  <span className="text-xs text-[var(--planner-subtle)]">食費や日用品など、毎日の家計簿</span>
+                  <span className="text-xs text-[var(--planner-subtle)]">買い物や日用品などの家計記録</span>
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAddMenu(false);
-                  setShowAddMedical(true);
-                }}
-                className="planner-choice"
-              >
+              <button type="button" onClick={() => openMedicalModal(recordDate)} className="planner-choice">
                 <span className="planner-choice-icon bg-[rgba(212,106,106,0.14)] text-[var(--planner-danger)]">🏥</span>
                 <span>
                   <strong className="block text-sm text-[var(--planner-text)]">医療費</strong>
-                  <span className="text-xs text-[var(--planner-subtle)]">通院分や薬代を控除用に整理</span>
+                  <span className="text-xs text-[var(--planner-subtle)]">病院代や薬代、通院交通費をまとめる</span>
                 </span>
               </button>
             </div>
@@ -133,8 +143,8 @@ export default function App() {
         </div>
       )}
 
-      {showAddExpense && <AddExpenseModal onClose={() => setShowAddExpense(false)} onSaved={onSaved} />}
-      {showAddMedical && <AddMedicalModal onClose={() => setShowAddMedical(false)} onSaved={onSaved} />}
+      {showAddExpense && <AddExpenseModal initialDate={recordDate} onClose={() => setShowAddExpense(false)} onSaved={onSaved} />}
+      {showAddMedical && <AddMedicalModal initialDate={recordDate} onClose={() => setShowAddMedical(false)} onSaved={onSaved} />}
     </div>
   );
 }

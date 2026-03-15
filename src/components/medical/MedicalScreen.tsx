@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { HeartPulse } from "lucide-react";
 import { db } from "@/db/database";
 import { downloadCSV, formatYen, generateMedicalCSV } from "@/utils";
@@ -33,14 +33,22 @@ export default function MedicalScreen() {
   const getMemberName = (id?: string) => members.find((member) => member.id === id)?.shortName ?? "";
   const getHospitalName = (id?: string) => shops.get(id ?? "") ?? "";
 
-  const total = records.reduce((sum, record) => sum + record.amount, 0);
-  const netTotal = records.reduce((sum, record) => sum + record.amount - record.reimbursedAmount, 0);
-  const deductible = Math.max(0, netTotal - 100_000);
-  const progress = Math.min(1, netTotal / 100_000);
+  const totals = useMemo(() => {
+    const total = records.reduce((sum, record) => sum + record.amount, 0);
+    const reimbursed = records.reduce((sum, record) => sum + record.reimbursedAmount, 0);
+    const netTotal = total - reimbursed;
+    const deductible = Math.max(0, netTotal - 100_000);
+    const transportCount = records.filter((record) => record.isTransportation).length;
+    const checkedCount = records.filter((record) => record.isChecked).length;
+
+    return { total, reimbursed, netTotal, deductible, transportCount, checkedCount };
+  }, [records]);
+
+  const progress = Math.min(1, totals.netTotal / 100_000);
 
   const exportCsv = () => {
     const csv = generateMedicalCSV(selectedYear, allRecords, getMemberName, getHospitalName);
-    downloadCSV(csv, `医療費集計_${selectedYear}年.csv`);
+    downloadCSV(csv, `医療費控除_${selectedYear}年.csv`);
   };
 
   return (
@@ -51,23 +59,34 @@ export default function MedicalScreen() {
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold tracking-[0.08em] text-white/80">医療費控除の確認</p>
+            <p className="text-xs font-semibold tracking-[0.08em] text-white/80">医療費控除の見通し</p>
             <h1 className="mt-2 font-['Hiragino_Mincho_ProN','Yu_Mincho',serif] text-3xl font-bold">{selectedYear}年分</h1>
           </div>
           <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-white/15">
             <HeartPulse size={22} />
           </div>
         </div>
-        <p className="mt-5 text-4xl font-bold">{formatYen(netTotal)}</p>
-        <p className="mt-1 text-xs text-white/80">補填後の医療費合計{netTotal !== total ? ` / 支払総額 ${formatYen(total)}` : ""}</p>
+        <p className="mt-5 text-4xl font-bold">{formatYen(totals.netTotal)}</p>
+        <p className="mt-1 text-xs text-white/80">
+          補填後の医療費合計{totals.netTotal !== totals.total ? ` / 支払総額 ${formatYen(totals.total)}` : ""}
+        </p>
         <div className="mt-5 h-3 rounded-full bg-white/20">
           <div className="h-3 rounded-full bg-white" style={{ width: `${progress * 100}%` }} />
         </div>
         <div className="mt-3 flex items-center justify-between gap-3 text-xs">
           <span className="text-white/80">10万円ライン</span>
-          <span className="font-semibold">{deductible > 0 ? `控除対象 ${formatYen(deductible)}` : `あと ${formatYen(100_000 - netTotal)}`}</span>
+          <span className="font-semibold">
+            {totals.deductible > 0 ? `控除対象 ${formatYen(totals.deductible)}` : `あと ${formatYen(100_000 - totals.netTotal)}`}
+          </span>
         </div>
       </section>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="支払総額" value={formatYen(totals.total)} />
+        <MetricCard label="補填額" value={formatYen(totals.reimbursed)} />
+        <MetricCard label="通院交通費" value={`${totals.transportCount}件`} />
+        <MetricCard label="照合済み" value={`${totals.checkedCount}/${records.length}件`} />
+      </div>
 
       <section className="planner-card">
         <div className="planner-section-header">
@@ -146,11 +165,20 @@ export default function MedicalScreen() {
       </section>
 
       <button type="button" onClick={exportCsv} className="planner-action w-full border-0 bg-[var(--planner-accent)] text-white">
-        CSV出力を確認する
+        CSVを出力する
       </button>
       <p className="px-2 text-center text-xs text-[var(--planner-subtle)]">
-        Excel で文字化けしにくい UTF-8 BOM 付きです。e-Tax 用にそのまま確認できます。
+        Excelで開きやすい UTF-8 BOM 付きです。e-Tax用の整理にもそのまま使えます。
       </p>
     </div>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <section className="planner-card">
+      <p className="planner-kicker">{label}</p>
+      <p className="mt-2 text-2xl font-bold text-[var(--planner-text)]">{value}</p>
+    </section>
   );
 }

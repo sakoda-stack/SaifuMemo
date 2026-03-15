@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, HeartPulse } from "lucide-react";
 import { db } from "@/db/database";
 import { addMonths, formatMonthYear, formatYen, getMonthRange } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
-import type { Category, Expense, MedicalExpense } from "@/types";
+import type { Category, MedicalExpense } from "@/types";
 
 interface CalendarEntry {
   id: string;
@@ -22,13 +22,17 @@ interface DaySummary {
   entries: CalendarEntry[];
 }
 
+interface CalendarScreenProps {
+  onAddExpense: (date?: string) => void;
+  onAddMedical: (date?: string) => void;
+}
+
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"] as const;
 
-export default function CalendarScreen() {
+export default function CalendarScreen({ onAddExpense, onAddMedical }: CalendarScreenProps) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [summaries, setSummaries] = useState<Record<string, DaySummary>>({});
   const [selectedDate, setSelectedDate] = useState("");
 
@@ -40,8 +44,6 @@ export default function CalendarScreen() {
         db.expenses.where("date").between(start, end, true, false).toArray(),
         db.medicalExpenses.where("paymentDate").between(start, end, true, false).toArray(),
       ]);
-
-      setCategories(categoryRows);
 
       const categoryMap = new Map(categoryRows.map((category) => [category.id, category]));
       const nextSummaries: Record<string, DaySummary> = {};
@@ -96,29 +98,23 @@ export default function CalendarScreen() {
         if (current && current.startsWith(`${year}-${String(month).padStart(2, "0")}`)) {
           return current;
         }
+
         return firstSelectableDate;
       });
     };
 
     load();
-  }, [year, month]);
+  }, [month, year]);
 
-  const monthEntries = useMemo(
-    () => Object.values(summaries).flatMap((summary) => summary.entries),
-    [summaries],
-  );
+  const monthEntries = useMemo(() => Object.values(summaries).flatMap((summary) => summary.entries), [summaries]);
   const monthTotal = monthEntries.reduce((sum, entry) => sum + entry.amount, 0);
   const activeDays = Object.keys(summaries).length;
   const selectedSummary = summaries[selectedDate];
-
-  const cells = useMemo(() => buildCalendarCells(year, month), [year, month]);
+  const cells = useMemo(() => buildCalendarCells(year, month), [month, year]);
 
   const goMonth = (delta: number) => {
     const next = addMonths(year, month, delta);
-    if (
-      next.year > today.getFullYear() ||
-      (next.year === today.getFullYear() && next.month > today.getMonth() + 1)
-    ) {
+    if (next.year > today.getFullYear() || (next.year === today.getFullYear() && next.month > today.getMonth() + 1)) {
       return;
     }
 
@@ -129,14 +125,15 @@ export default function CalendarScreen() {
   return (
     <div className="planner-page">
       <div className="planner-monthbar">
-        <button onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
+        <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
           <ChevronLeft size={20} />
         </button>
         <div className="text-center">
-          <p className="planner-kicker">見開きカレンダー</p>
+          <p className="planner-kicker">家計カレンダー</p>
           <h2 className="planner-heading">{formatMonthYear(year, month)}</h2>
         </div>
         <button
+          type="button"
           onClick={() => goMonth(1)}
           className="planner-icon-button"
           disabled={year === today.getFullYear() && month === today.getMonth() + 1}
@@ -209,26 +206,44 @@ export default function CalendarScreen() {
         </div>
       </section>
 
+      {selectedDate && (
+        <section className="planner-card">
+          <div className="planner-section-header">
+            <div>
+              <p className="planner-kicker">この日に追加</p>
+              <h3 className="planner-subheading">{formatDateLabel(selectedDate)}</h3>
+            </div>
+            {selectedSummary && <p className="text-lg font-bold text-[var(--planner-accent)]">{formatYen(selectedSummary.total)}</p>}
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <button type="button" onClick={() => onAddExpense(selectedDate)} className="planner-action w-full bg-[var(--planner-accent)] text-white">
+              支出を記録
+            </button>
+            <button type="button" onClick={() => onAddMedical(selectedDate)} className="planner-action w-full bg-[var(--planner-danger)] text-white">
+              医療費を記録
+            </button>
+          </div>
+        </section>
+      )}
+
       <div className="grid gap-3 md:grid-cols-3">
-        <SummaryCard label="今月の総額" value={formatYen(monthTotal)} note="入力済みの支出と医療費" />
-        <SummaryCard label="記録件数" value={`${monthEntries.length}件`} note="家計簿と医療費の合算" />
-        <SummaryCard label="動いた日" value={`${activeDays}日`} note="記録のあった日だけ色づけ" />
+        <SummaryCard label="今月の合計" value={formatYen(monthTotal)} note="支出と医療費をまとめて確認" />
+        <SummaryCard label="記録件数" value={`${monthEntries.length}件`} note="その月に入力した記録数" />
+        <SummaryCard label="動いた日数" value={`${activeDays}日`} note="家計の動きがあった日" />
       </div>
 
       <section className="planner-card">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <p className="planner-kicker">その日の内容</p>
-            <h3 className="planner-subheading">
-              {selectedSummary ? formatDateLabel(selectedSummary.date) : "日付を選んでください"}
-            </h3>
+            <p className="planner-kicker">選択した日の内容</p>
+            <h3 className="planner-subheading">{selectedSummary ? formatDateLabel(selectedSummary.date) : "日付を選んでください"}</h3>
           </div>
           {selectedSummary && <p className="text-lg font-bold text-[var(--planner-accent)]">{formatYen(selectedSummary.total)}</p>}
         </div>
 
         {!selectedSummary ? (
           <p className="rounded-[24px] bg-[var(--planner-soft)] px-4 py-6 text-center text-sm text-[var(--planner-subtle)]">
-            カレンダーの日付を押すと、その日の内容が並びます。
+            カレンダーの日付を押すと、その日の内容がここに表示されます。
           </p>
         ) : (
           <div className="space-y-3">
@@ -309,7 +324,7 @@ function compactYen(value: number) {
 
 function formatDateLabel(date: string) {
   const day = new Date(`${date}T00:00:00`);
-  return `${day.getMonth() + 1}月${day.getDate()}日（${WEEKDAYS[day.getDay()]}）`;
+  return `${day.getMonth() + 1}月${day.getDate()}日 (${WEEKDAYS[day.getDay()]})`;
 }
 
 function toDateString(date: Date) {

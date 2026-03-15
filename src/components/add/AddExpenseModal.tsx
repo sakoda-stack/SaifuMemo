@@ -8,11 +8,12 @@ import { downloadDataUrl, recognizeExpenseReceipt, toObservationPayload, type Ex
 import type { Category, Member, ShopMaster } from "@/types";
 
 interface Props {
+  initialDate?: string;
   onClose: () => void;
   onSaved: () => void;
 }
 
-export default function AddExpenseModal({ onClose, onSaved }: Props) {
+export default function AddExpenseModal({ initialDate, onClose, onSaved }: Props) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [shops, setShops] = useState<ShopMaster[]>([]);
@@ -21,7 +22,7 @@ export default function AddExpenseModal({ onClose, onSaved }: Props) {
   const [selectedMember, setSelectedMember] = useState("");
   const [selectedShop, setSelectedShop] = useState("");
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(todayString());
+  const [date, setDate] = useState(initialDate ?? todayString());
   const [memo, setMemo] = useState("");
   const [imageData, setImageData] = useState("");
   const [ocrDraft, setOcrDraft] = useState<ExpenseOcrDraft | null>(null);
@@ -53,6 +54,12 @@ export default function AddExpenseModal({ onClose, onSaved }: Props) {
     load();
     setTimeout(() => amountRef.current?.focus(), 300);
   }, []);
+
+  useEffect(() => {
+    if (initialDate) {
+      setDate(initialDate);
+    }
+  }, [initialDate]);
 
   const handleImage = async (file: File) => {
     const base64 = await fileToBase64(file);

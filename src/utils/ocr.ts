@@ -31,11 +31,24 @@ export interface OcrReceiptItem {
   sourceText: string;
 }
 
+type TesseractModule = typeof import("tesseract.js");
+type TesseractWorker = Awaited<ReturnType<TesseractModule["createWorker"]>>;
+
+const OCR_LANGS = ["jpn", "eng"] as const;
+const OCR_VERSION = "7.0.0";
+const OCR_BASE = `https://cdn.jsdelivr.net/npm/tesseract.js@${OCR_VERSION}`;
+const OCR_CORE_BASE = `https://cdn.jsdelivr.net/npm/tesseract.js-core@v${OCR_VERSION}`;
+const OCR_LANG_BASE = "https://tessdata.projectnaptha.com/4.0.0";
+const OCR_MAX_EDGE = 2200;
+const OCR_MIN_EDGE = 1400;
+
 const TOTAL_LABEL_PATTERN = /(合計|総計|現計|小計|お預り|お釣り|税込|税抜|クレジット|電子マネー|ポイント|値引|割引|TEL|電話)/i;
 const RECEIPT_SKIP_PATTERN = /(領収|レシート|ありがとうございました|承認|取引|伝票|No\.?|番号|内訳|担当|担当者)/i;
-const DATE_LINE_PATTERN =
-  /(20\d{2}|\d{2})[\/.\-年]\s*\d{1,2}[\/.\-月]\s*\d{1,2}(?:日)?|\d{1,2}:\d{2}/;
+const DATE_LINE_PATTERN = /(20\d{2}|\d{2})[\/.\-年]\s*\d{1,2}[\/.\-月]\s*\d{1,2}(?:日)?|\d{1,2}:\d{2}/;
 const QUANTITY_PATTERN = /(\d+(?:\.\d+)?)\s?(kg|g|ml|mL|l|L|個|本|枚|袋|パック|P|p|缶|玉|箱)/;
+
+let workerPromise: Promise<TesseractWorker> | null = null;
+let workerQueue: Promise<unknown> = Promise.resolve();
 
 export async function recognizeExpenseReceipt(imageData: string): Promise<OcrScanResult<ExpenseOcrDraft>> {
   const { text, confidence } = await runOcr(imageData);
@@ -114,8 +127,30 @@ export function downloadDataUrl(dataUrl: string, filename: string) {
 }
 
 async function runOcr(imageData: string) {
-  const Tesseract = await import("tesseract.js");
-  const result = await Tesseract.recognize(imageData, "jpn+eng", {
+  const preparedImage = await prepareImageForOcr(imageData);
+
+  try {
+    const worker = await getWorker();
+    const result = await enqueueOcrJob(async () => worker.recognize(preparedImage, { rotateAuto: true }));
+
+    return {
+      text: normalizeOcrText(result.data.text),
+      confidence: result.data.confidence ?? 0,
+    };
+  } catch (workerError) {
+    const fallback = await runDirectRecognize(preparedImage).catch((fallbackError) => {
+      const workerMessage = workerError instanceof Error ? workerError.message : "worker initialization failed";
+      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : "fallback recognize failed";
+      throw new Error(`OCR failed: ${workerMessage}; fallback failed: ${fallbackMessage}`);
+    });
+
+    return fallback;
+  }
+}
+
+async function runDirectRecognize(imageData: string) {
+  const { recognize } = await import("tesseract.js");
+  const result = await recognize(imageData, OCR_LANGS.join("+"), {
     logger: () => undefined,
   });
 
@@ -123,6 +158,87 @@ async function runOcr(imageData: string) {
     text: normalizeOcrText(result.data.text),
     confidence: result.data.confidence ?? 0,
   };
+}
+
+async function getWorker() {
+  if (!workerPromise) {
+    workerPromise = createOcrWorker();
+  }
+
+  return workerPromise;
+}
+
+async function createOcrWorker() {
+  const { createWorker, PSM } = await import("tesseract.js");
+  const worker = await createWorker([...OCR_LANGS], 1, {
+    workerPath: `${OCR_BASE}/dist/worker.min.js`,
+    corePath: OCR_CORE_BASE,
+    langPath: OCR_LANG_BASE,
+    cacheMethod: "write",
+    gzip: true,
+    logger: () => undefined,
+    errorHandler: () => undefined,
+  });
+
+  await worker.setParameters({
+    preserve_interword_spaces: "1",
+    tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+  });
+
+  return worker;
+}
+
+function enqueueOcrJob<T>(job: () => Promise<T>) {
+  const nextJob = workerQueue.then(job, job);
+  workerQueue = nextJob.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  return nextJob;
+}
+
+async function prepareImageForOcr(imageData: string) {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return imageData;
+  }
+
+  const image = await loadImage(imageData);
+  const longestEdge = Math.max(image.width, image.height);
+  const upscaleRatio = longestEdge < OCR_MIN_EDGE ? OCR_MIN_EDGE / longestEdge : 1;
+  const downscaleRatio = longestEdge > OCR_MAX_EDGE ? OCR_MAX_EDGE / longestEdge : 1;
+  const ratio = Math.min(Math.max(upscaleRatio, downscaleRatio), 2);
+
+  if (ratio === 1 && longestEdge <= OCR_MAX_EDGE && longestEdge >= OCR_MIN_EDGE) {
+    return imageData;
+  }
+
+  const width = Math.max(1, Math.round(image.width * ratio));
+  const height = Math.max(1, Math.round(image.height * ratio));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return imageData;
+  }
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.filter = "grayscale(1) contrast(1.18) brightness(1.05)";
+  context.drawImage(image, 0, 0, width, height);
+
+  return canvas.toDataURL("image/jpeg", 0.92);
+}
+
+function loadImage(source: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("failed to decode image"));
+    image.src = source;
+  });
 }
 
 function normalizeOcrText(text: string) {
@@ -233,7 +349,12 @@ function extractQuantity(itemName: string) {
 
   const rawQuantity = parseFloat(match[1]);
   const unit = normalizeUnit(match[2]);
-  const quantity = unit === "g" && match[2].toLowerCase() === "kg" ? rawQuantity * 1000 : unit === "ml" && /^(l|L)$/.test(match[2]) ? rawQuantity * 1000 : rawQuantity;
+  const quantity =
+    unit === "g" && match[2].toLowerCase() === "kg"
+      ? rawQuantity * 1000
+      : unit === "ml" && /^(l|L)$/.test(match[2])
+        ? rawQuantity * 1000
+        : rawQuantity;
 
   return { quantity, unit };
 }
@@ -267,14 +388,11 @@ function inferMedicalType(text: string): MedicalType {
   if (/薬局|調剤/.test(text)) {
     return "医薬品購入";
   }
-  if (/病院|クリニック|診療所|処方/.test(text)) {
-    return "診療・治療";
+  if (/介護/.test(text)) {
+    return "介護保険サービス";
   }
   if (/整体|マッサージ|コンタクト/.test(text)) {
     return "その他の医療費";
-  }
-  if (/歯|口腔/.test(text)) {
-    return "診療・治療";
   }
   return "診療・治療";
 }

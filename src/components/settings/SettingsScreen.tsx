@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { CheckCircle2, ChevronLeft, ChevronRight, Circle, Pencil, Plus, Trash2 } from "lucide-react";
 import { v4 as uuid } from "uuid";
 import { db } from "@/db/database";
@@ -31,7 +31,7 @@ export default function SettingsScreen() {
     return <FixedMonthSection onBack={() => setSection("menu")} year={today.getFullYear()} month={today.getMonth() + 1} />;
   }
   if (section === "checklist") {
-    return <ChecklistSection onBack={() => setSection("menu")} />;
+    return <ReceiptChecklistSection onBack={() => setSection("menu")} />;
   }
 
   return (
@@ -590,6 +590,7 @@ function FixedMonthSection({ onBack, year, month }: { onBack: () => void; year: 
 
 function ChecklistSection({ onBack }: { onBack: () => void }) {
   const [items, setItems] = useState<Array<ReceiptChecklistItem>>([]);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -764,6 +765,178 @@ function MasterRow({
         <Trash2 size={16} />
       </button>
     </div>
+  );
+}
+
+function ReceiptChecklistSection({ onBack }: { onBack: () => void }) {
+  const [items, setItems] = useState<Array<ReceiptChecklistItem>>([]);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      const [expenses, medicals, members, categories] = await Promise.all([
+        db.expenses.toArray(),
+        db.medicalExpenses.toArray(),
+        db.members.toArray(),
+        db.categories.toArray(),
+      ]);
+
+      const memberMap = new Map(members.map((member) => [member.id, member.shortName]));
+      const categoryMap = new Map(categories.map((category) => [category.id, category.name]));
+
+      const expenseItems: ReceiptChecklistItem[] = expenses.map((expense) => ({
+        id: expense.id,
+        kind: "expense",
+        date: expense.date,
+        title: expense.shopName || expense.memo || "支出",
+        subtitle: `${memberMap.get(expense.memberId ?? "") || "未設定"} ・ ${categoryMap.get(expense.categoryId ?? "") || "カテゴリ未設定"}`,
+        amount: expense.amount,
+        checked: expense.isChecked,
+        imageData: expense.receiptImageData,
+      }));
+
+      const medicalItems: ReceiptChecklistItem[] = medicals.map((medical) => ({
+        id: medical.id,
+        kind: "medical",
+        date: medical.paymentDate,
+        title: medical.hospitalName || "医療費",
+        subtitle: `${memberMap.get(medical.memberId ?? "") || "未設定"} ・ ${medical.isTransportation ? "通院交通費" : medical.medicalType}`,
+        amount: medical.amount,
+        checked: medical.isChecked,
+        imageData: medical.receiptImageData,
+      }));
+
+      setItems([...expenseItems, ...medicalItems].sort((left, right) => right.date.localeCompare(left.date)));
+    };
+
+    load();
+  }, []);
+
+  const done = items.filter((item) => item.checked).length;
+  const pendingItems = items.filter((item) => !item.checked);
+  const completedItems = items.filter((item) => item.checked);
+
+  const toggleCheck = async (item: ReceiptChecklistItem) => {
+    if (item.kind === "expense") {
+      await db.expenses.update(item.id, { isChecked: !item.checked });
+    } else {
+      await db.medicalExpenses.update(item.id, { isChecked: !item.checked });
+    }
+
+    setItems((rows) => rows.map((row) => (row.id === item.id && row.kind === item.kind ? { ...row, checked: !row.checked } : row)));
+  };
+
+  return (
+    <SectionLayout title="レシート照合" onBack={onBack}>
+      <div className="planner-card bg-[var(--planner-soft)]">
+        <div className="h-2 overflow-hidden rounded-full bg-white">
+          <div className="h-2 rounded-full bg-[var(--planner-accent)]" style={{ width: `${items.length === 0 ? 0 : (done / items.length) * 100}%` }} />
+        </div>
+        <p className="mt-2 text-right text-xs text-[var(--planner-subtle)]">
+          {done}/{items.length} 件 照合済み
+        </p>
+      </div>
+      <ReceiptChecklistGroup title="未照合" items={pendingItems} onToggle={toggleCheck} onPreview={setPreviewImage} />
+      {completedItems.length > 0 && <ReceiptChecklistGroup title="照合済み" items={completedItems} onToggle={toggleCheck} onPreview={setPreviewImage} />}
+      {previewImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={() => setPreviewImage(null)}>
+          <img src={previewImage} alt="receipt preview" className="max-h-[88vh] max-w-full rounded-[24px] border border-white/30 shadow-2xl" />
+        </div>
+      )}
+    </SectionLayout>
+  );
+}
+
+function ReceiptChecklistGroup({
+  title,
+  items,
+  onToggle,
+  onPreview,
+}: {
+  title: string;
+  items: ReceiptChecklistItem[];
+  onToggle: (item: ReceiptChecklistItem) => void;
+  onPreview: (imageData: string) => void;
+}) {
+  return (
+    <section className="planner-card">
+      <p className="planner-kicker">{title}</p>
+      <div className="mt-4 space-y-3">
+        {items.length === 0 ? (
+          <p className="rounded-[22px] bg-[var(--planner-soft)] px-4 py-6 text-center text-sm text-[var(--planner-subtle)]">対象の明細はありません。</p>
+        ) : (
+          items.map((item) => (
+            <button key={`${item.kind}-${item.id}`} type="button" onClick={() => onToggle(item)} className="planner-row w-full text-left">
+              {item.checked ? (
+                <CheckCircle2 size={22} className="shrink-0 text-[var(--planner-success)]" />
+              ) : (
+                <Circle size={22} className="shrink-0 text-[var(--planner-line)]" />
+              )}
+              {item.imageData ? (
+                <ReceiptPreviewButton imageData={item.imageData} onPreview={onPreview} />
+              ) : (
+                <div className="planner-tile flex h-16 w-16 shrink-0 items-center justify-center bg-[var(--planner-soft)] text-xs text-[var(--planner-subtle)]">
+                  画像なし
+                </div>
+              )}
+              <span className="min-w-0 flex-1">
+                <strong className="planner-wrap-text block text-sm text-[var(--planner-text)]">{item.title}</strong>
+                <span className="planner-wrap-text block text-xs text-[var(--planner-subtle)]">{item.date} ・ {item.subtitle}</span>
+                <span className="mt-1 block text-sm font-semibold text-[var(--planner-text)]">{formatYen(item.amount)}</span>
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ReceiptPreviewButton({
+  imageData,
+  onPreview,
+}: {
+  imageData: string;
+  onPreview: (imageData: string) => void;
+}) {
+  const timerRef = useRef<number | null>(null);
+
+  const clearTimer = () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className="planner-tile h-16 w-16 shrink-0 overflow-hidden"
+      onClick={(event) => {
+        event.stopPropagation();
+        onPreview(imageData);
+      }}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        clearTimer();
+        timerRef.current = window.setTimeout(() => {
+          onPreview(imageData);
+          timerRef.current = null;
+        }, 450);
+      }}
+      onPointerUp={(event) => {
+        event.stopPropagation();
+        clearTimer();
+      }}
+      onPointerLeave={clearTimer}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onPreview(imageData);
+      }}
+    >
+      <img src={imageData} alt="receipt" className="h-full w-full object-cover" />
+    </button>
   );
 }
 

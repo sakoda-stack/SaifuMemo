@@ -7,11 +7,12 @@ import { downloadDataUrl, recognizeMedicalReceipt, type MedicalOcrDraft } from "
 import type { MedicalType, Member, ShopMaster } from "@/types";
 
 interface Props {
+  initialDate?: string;
   onClose: () => void;
   onSaved: () => void;
 }
 
-export default function AddMedicalModal({ onClose, onSaved }: Props) {
+export default function AddMedicalModal({ initialDate, onClose, onSaved }: Props) {
   const [members, setMembers] = useState<Member[]>([]);
   const [hospitals, setHospitals] = useState<ShopMaster[]>([]);
   const [selectedMember, setSelectedMember] = useState("");
@@ -20,7 +21,7 @@ export default function AddMedicalModal({ onClose, onSaved }: Props) {
   const [isTransportation, setIsTransportation] = useState(false);
   const [amount, setAmount] = useState("");
   const [reimbursedAmount, setReimbursedAmount] = useState("");
-  const [date, setDate] = useState(todayString());
+  const [date, setDate] = useState(initialDate ?? todayString());
   const [imageData, setImageData] = useState("");
   const [ocrDraft, setOcrDraft] = useState<MedicalOcrDraft | null>(null);
   const [ocrText, setOcrText] = useState("");
@@ -50,6 +51,12 @@ export default function AddMedicalModal({ onClose, onSaved }: Props) {
 
     load();
   }, []);
+
+  useEffect(() => {
+    if (initialDate) {
+      setDate(initialDate);
+    }
+  }, [initialDate]);
 
   const addHospital = async () => {
     if (!newHospital.trim()) return;
