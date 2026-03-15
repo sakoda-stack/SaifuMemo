@@ -963,6 +963,11 @@ button {
   align-items: start;
 }
 
+.planner-breakdown-chart-wrap {
+  display: grid;
+  gap: 10px;
+}
+
 .planner-breakdown-chart {
   width: min(100%, 260px);
   aspect-ratio: 1;
@@ -975,9 +980,9 @@ button {
   overflow: visible;
 }
 
-.planner-breakdown-segment {
+.planner-breakdown-slice {
   cursor: pointer;
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition: transform 180ms ease, opacity 180ms ease;
 }
 
 .planner-breakdown-legend-bottom,
@@ -1003,6 +1008,39 @@ button {
 .planner-breakdown-outer-text {
   fill: var(--planner-text);
   font-weight: 700;
+}
+
+.planner-breakdown-selection {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border: 1px solid var(--planner-line);
+  border-radius: 12px;
+  background: var(--planner-soft);
+  padding: 8px 10px;
+  text-align: center;
+}
+
+.planner-breakdown-selection-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.planner-breakdown-selection-value {
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--planner-text);
+}
+
+.planner-breakdown-selection-note {
+  font-size: 11px;
+  color: var(--planner-subtle);
 }
 
 .planner-breakdown-legend {
