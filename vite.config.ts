@@ -5,10 +5,7 @@ import { VitePWA } from "vite-plugin-pwa";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const repositoryName = process.env.GITHUB_REPOSITORY?.split("/")[1];
-  const base =
-    process.env.GITHUB_ACTIONS === "true" && repositoryName
-      ? `/${repositoryName}/`
-      : "/";
+  const base = process.env.GITHUB_ACTIONS === "true" && repositoryName ? `/${repositoryName}/` : "/";
 
   const geminiApiKey = env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY || "";
 
@@ -21,11 +18,11 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: "autoUpdate",
-        includeAssets: ["saifu.png", "favicon.png", "apple-touch-icon.png", "どるあいこん.png", "icons/*.png"],
+        includeAssets: ["saifu.png", "favicon.png", "apple-touch-icon.png", "icons/*.png"],
         manifest: {
-          name: "さいふメモ",
-          short_name: "さいふメモ",
-          description: "家族の家計簿・確定申告サポートアプリ",
+          name: "SaifuMemo",
+          short_name: "SaifuMemo",
+          description: "家計簿と医療費記録をまとめて管理するアプリ",
           theme_color: "#3B7DD8",
           background_color: "#F7F6F2",
           display: "standalone",
@@ -33,8 +30,9 @@ export default defineConfig(({ mode }) => {
           start_url: base,
           scope: base,
           icons: [
-            { src: "どるあいこん.png", sizes: "1749x1588", type: "image/png" },
-            { src: "どるあいこん.png", sizes: "1749x1588", type: "image/png", purpose: "any maskable" },
+            { src: "icons/icon-192.png", sizes: "192x192", type: "image/png" },
+            { src: "icons/icon-512.png", sizes: "512x512", type: "image/png" },
+            { src: "icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
           ],
         },
         workbox: {
