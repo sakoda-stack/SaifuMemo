@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ArrowLeft, Edit3, Plus, Trash2 } from "lucide-react";
 import { v4 as uuid } from "uuid";
 import { db, getMonthlyFixedRecords } from "@/db/database";
-import { ActionCard, EmptyState, ScreenIntro, SectionHeader } from "@/components/ui/PlannerUI";
+import { ActionCard, EmptyState, SectionHeader, StickyActionBar } from "@/components/ui/PlannerUI";
 import { CATEGORY_COLOR_OPTIONS, CATEGORY_ICON_OPTIONS, resolveIcon } from "@/utils/icons";
 import { formatYen } from "@/utils";
 import type { Category, FixedExpenseRecord, FixedExpenseTemplate, Member, ShopMaster } from "@/types";
@@ -12,38 +12,21 @@ type Section = "menu" | "members" | "shops" | "hospitals" | "categories" | "fixe
 export default function SettingsScreen() {
   const [section, setSection] = useState<Section>("menu");
 
-  if (section === "members") {
-    return <MembersManager onBack={() => setSection("menu")} />;
-  }
-  if (section === "shops") {
-    return <ShopManager onBack={() => setSection("menu")} mode="general" title="店舗マスタ" />;
-  }
-  if (section === "hospitals") {
-    return <ShopManager onBack={() => setSection("menu")} mode="medical" title="病院・薬局マスタ" />;
-  }
-  if (section === "categories") {
-    return <CategoryManager onBack={() => setSection("menu")} />;
-  }
-  if (section === "fixed") {
-    return <FixedManager onBack={() => setSection("menu")} />;
-  }
+  if (section === "members") return <MembersManager onBack={() => setSection("menu")} />;
+  if (section === "shops") return <ShopManager onBack={() => setSection("menu")} mode="general" title="店舗マスタ" />;
+  if (section === "hospitals") return <ShopManager onBack={() => setSection("menu")} mode="medical" title="病院・薬局マスタ" />;
+  if (section === "categories") return <CategoryManager onBack={() => setSection("menu")} />;
+  if (section === "fixed") return <FixedManager onBack={() => setSection("menu")} />;
+
   return (
     <div className="planner-page">
-      <ScreenIntro kicker="SETTINGS" title="管理メニュー" />
-
       <section className="planner-card">
-        <SectionHeader kicker="MASTER" title="マスタ管理" />
+        <SectionHeader kicker="SETTINGS" title="設定" />
         <div className="mt-4 grid gap-3">
-          <ActionCard title="家族メンバー" icon={<Plus size={18} />} onClick={() => setSection("members")} />
+          <ActionCard title="メンバー" icon={<Plus size={18} />} onClick={() => setSection("members")} />
           <ActionCard title="店舗マスタ" icon={<Plus size={18} />} onClick={() => setSection("shops")} />
-          <ActionCard title="病院・薬局マスタ" icon={<Plus size={18} />} onClick={() => setSection("hospitals")} />
+          <ActionCard title="病院・薬局" icon={<Plus size={18} />} onClick={() => setSection("hospitals")} />
           <ActionCard title="カテゴリ" icon={<Edit3 size={18} />} onClick={() => setSection("categories")} />
-        </div>
-      </section>
-
-      <section className="planner-card">
-        <SectionHeader kicker="FLOW" title="入力確認" />
-        <div className="mt-4 grid gap-3">
           <ActionCard title="固定費テンプレート" icon={<Edit3 size={18} />} onClick={() => setSection("fixed")} />
         </div>
       </section>
@@ -75,10 +58,7 @@ function MembersManager({ onBack }: { onBack: () => void }) {
     if (!name.trim()) return;
 
     if (editingId) {
-      await db.members.update(editingId, {
-        name: name.trim(),
-        shortName: shortName.trim() || name.trim(),
-      });
+      await db.members.update(editingId, { name: name.trim(), shortName: shortName.trim() || name.trim() });
     } else {
       await db.members.add({
         id: uuid(),
@@ -101,21 +81,16 @@ function MembersManager({ onBack }: { onBack: () => void }) {
   };
 
   const remove = async (member: Member) => {
-    if (!window.confirm(`${member.name} を停止しますか。`)) return;
+    if (!window.confirm(`${member.name} を削除しますか？`)) return;
     await db.members.update(member.id, { isActive: false });
     await load();
   };
 
   return (
-    <SettingsLayout title="家族メンバー" onBack={onBack}>
-      <EditPanel
-        title={editingId ? "メンバーを編集" : "メンバーを追加"}
-        onSave={save}
-        onCancel={reset}
-        saveLabel={editingId ? "更新" : "追加"}
-      >
-        <Field label="氏名">
-          <input value={name} onChange={(event) => setName(event.target.value)} className="planner-field" placeholder="例: 迫田 幸平" />
+    <SettingsLayout title="メンバー" onBack={onBack}>
+      <EditPanel title={editingId ? "メンバーを編集" : "メンバーを追加"} onSave={save} onCancel={reset} saveLabel={editingId ? "更新" : "保存"}>
+        <Field label="名前">
+          <input value={name} onChange={(event) => setName(event.target.value)} className="planner-field" placeholder="例: 幸平" />
         </Field>
         <Field label="表示名">
           <input value={shortName} onChange={(event) => setShortName(event.target.value)} className="planner-field" placeholder="例: 幸平" />
@@ -195,19 +170,19 @@ function ShopManager({
   };
 
   const remove = async (shop: ShopMaster) => {
-    if (!window.confirm(`${shop.name} を停止しますか。`)) return;
+    if (!window.confirm(`${shop.name} を削除しますか？`)) return;
     await db.shopMasters.update(shop.id, { isActive: false });
     await load();
   };
 
   return (
     <SettingsLayout title={title} onBack={onBack}>
-      <EditPanel title={editingId ? "店舗を編集" : "店舗を追加"} onSave={save} onCancel={reset} saveLabel={editingId ? "更新" : "追加"}>
+      <EditPanel title={editingId ? "店舗を編集" : "店舗を追加"} onSave={save} onCancel={reset} saveLabel={editingId ? "更新" : "保存"}>
         <Field label="名称">
-          <input value={name} onChange={(event) => setName(event.target.value)} className="planner-field" placeholder="名称" />
+          <input value={name} onChange={(event) => setName(event.target.value)} className="planner-field" placeholder="店舗名" />
         </Field>
         {mode === "medical" ? (
-          <Field label="種別">
+          <Field label="種類">
             <div className="planner-pill-grid">
               {[
                 { value: "hospital", label: "病院" },
@@ -228,13 +203,13 @@ function ShopManager({
       </EditPanel>
 
       <section className="planner-card">
-        <SectionHeader kicker="LIST" title="登録一覧" />
+        <SectionHeader kicker="LIST" title="一覧" />
         <div className="mt-4 space-y-3">
           {shops.map((shop) => (
             <RowActions
               key={shop.id}
               title={shop.name}
-              note={`利用 ${shop.usageCount} 回 / ${shop.shopType === "general" ? "一般店舗" : shop.shopType === "hospital" ? "病院" : "薬局"}`}
+              note={`使用 ${shop.usageCount}回 / ${shop.shopType === "general" ? "一般店舗" : shop.shopType === "hospital" ? "病院" : "薬局"}`}
               onEdit={() => edit(shop)}
               onDelete={() => void remove(shop)}
             />
@@ -299,19 +274,19 @@ function CategoryManager({ onBack }: { onBack: () => void }) {
 
   const remove = async (category: Category) => {
     if (!category.isCustom) {
-      window.alert("標準カテゴリは停止できません。色やアイコンの編集のみ可能です。");
+      window.alert("初期カテゴリは削除できません。");
       return;
     }
-    if (!window.confirm(`${category.name} を停止しますか。`)) return;
+    if (!window.confirm(`${category.name} を削除しますか？`)) return;
     await db.categories.update(category.id, { isActive: false });
     await load();
   };
 
   return (
     <SettingsLayout title="カテゴリ" onBack={onBack}>
-      <EditPanel title={editingId ? "カテゴリを編集" : "カテゴリを追加"} onSave={save} onCancel={reset} saveLabel={editingId ? "更新" : "追加"}>
+      <EditPanel title={editingId ? "カテゴリを編集" : "カテゴリを追加"} onSave={save} onCancel={reset} saveLabel={editingId ? "更新" : "保存"}>
         <Field label="カテゴリ名">
-          <input value={name} onChange={(event) => setName(event.target.value)} className="planner-field" placeholder="例: ペット費" />
+          <input value={name} onChange={(event) => setName(event.target.value)} className="planner-field" placeholder="例: 食費" />
         </Field>
         <Field label="アイコン">
           <div className="grid grid-cols-5 gap-2">
@@ -339,7 +314,13 @@ function CategoryManager({ onBack }: { onBack: () => void }) {
         <Field label="色">
           <div className="grid grid-cols-5 gap-2">
             {CATEGORY_COLOR_OPTIONS.map((color) => (
-              <button key={color} type="button" onClick={() => setColorHex(color)} className="h-10 rounded-[12px] border" style={{ backgroundColor: color, borderColor: colorHex === color ? "#ffffff" : "transparent", boxShadow: colorHex === color ? `0 0 0 2px ${color}` : "none" }} />
+              <button
+                key={color}
+                type="button"
+                onClick={() => setColorHex(color)}
+                className="h-10 rounded-[12px] border"
+                style={{ backgroundColor: color, borderColor: colorHex === color ? "#ffffff" : "transparent", boxShadow: colorHex === color ? `0 0 0 2px ${color}` : "none" }}
+              />
             ))}
           </div>
         </Field>
@@ -357,7 +338,7 @@ function CategoryManager({ onBack }: { onBack: () => void }) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold">{category.name}</p>
-                  <p className="text-xs text-[var(--planner-subtle)]">{category.isCustom ? "追加カテゴリ" : "標準カテゴリ"}</p>
+                  <p className="text-xs text-[var(--planner-subtle)]">{category.isCustom ? "追加カテゴリ" : "初期カテゴリ"}</p>
                 </div>
                 <button type="button" onClick={() => edit(category)} className="planner-icon-button" aria-label="カテゴリを編集">
                   <Edit3 size={14} />
@@ -378,6 +359,7 @@ function FixedManager({ onBack }: { onBack: () => void }) {
   const today = new Date();
   const [templates, setTemplates] = useState<FixedExpenseTemplate[]>([]);
   const [monthRecords, setMonthRecords] = useState<FixedExpenseRecord[]>([]);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
@@ -396,6 +378,7 @@ function FixedManager({ onBack }: { onBack: () => void }) {
   }, []);
 
   const reset = () => {
+    setIsEditorOpen(false);
     setEditingId(null);
     setName("");
     setAmount("");
@@ -422,34 +405,44 @@ function FixedManager({ onBack }: { onBack: () => void }) {
     await load();
   };
 
+  const openCreate = () => {
+    setEditingId(null);
+    setName("");
+    setAmount("");
+    setIsEditorOpen(true);
+  };
+
   const edit = (template: FixedExpenseTemplate) => {
     setEditingId(template.id);
     setName(template.name);
     setAmount(String(template.defaultAmount));
+    setIsEditorOpen(true);
   };
 
   const remove = async (template: FixedExpenseTemplate) => {
-    if (!window.confirm(`${template.name} を停止しますか。`)) return;
+    if (!window.confirm(`${template.name} を削除しますか？`)) return;
     await db.fixedTemplates.update(template.id, { isActive: false });
+    if (editingId === template.id) {
+      reset();
+    }
     await load();
   };
 
   return (
     <SettingsLayout title="固定費テンプレート" onBack={onBack}>
-      <EditPanel title={editingId ? "固定費を編集" : "固定費を追加"} onSave={save} onCancel={reset} saveLabel={editingId ? "更新" : "追加"}>
-        <Field label="名称">
-          <input value={name} onChange={(event) => setName(event.target.value)} className="planner-field" placeholder="例: 電気代" />
-        </Field>
-        <Field label="標準金額">
-          <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" className="planner-field" placeholder="8000" />
-        </Field>
-      </EditPanel>
-
       <section className="planner-card">
-        <SectionHeader kicker="TEMPLATES" title="固定費テンプレート" />
+        <SectionHeader
+          kicker="TEMPLATES"
+          title="テンプレート一覧"
+          action={
+            <button type="button" onClick={openCreate} className="planner-link-row planner-link-row-compact">
+              追加
+            </button>
+          }
+        />
         <div className="mt-4 space-y-3">
           {templates.map((template) => (
-            <RowActions key={template.id} title={template.name} note={`標準金額 ${formatYen(template.defaultAmount)}`} onEdit={() => edit(template)} onDelete={() => void remove(template)} />
+            <RowActions key={template.id} title={template.name} note={`標準金額: ${formatYen(template.defaultAmount)}`} onEdit={() => edit(template)} onDelete={() => void remove(template)} />
           ))}
         </div>
       </section>
@@ -458,7 +451,7 @@ function FixedManager({ onBack }: { onBack: () => void }) {
         <SectionHeader kicker="THIS MONTH" title="今月の固定費" />
         <div className="mt-4 space-y-3">
           {monthRecords.length === 0 ? (
-            <EmptyState title="今月の固定費は未生成です" message="テンプレート登録後に今月分の固定費が自動生成されます。" />
+            <EmptyState title="今月の固定費はありません" message="テンプレートを確認してください。" />
           ) : (
             monthRecords.map((record) => {
               const template = templates.find((item) => item.id === record.templateId);
@@ -478,6 +471,44 @@ function FixedManager({ onBack }: { onBack: () => void }) {
           )}
         </div>
       </section>
+
+      {isEditorOpen ? (
+        <div className="planner-modal">
+          <div className="planner-modal-backdrop" onClick={reset} />
+          <div className="planner-modal-sheet">
+            <div className="planner-modal-scroll">
+              <div className="planner-page">
+                <section className="planner-card">
+                  <SectionHeader kicker="FIXED" title={editingId ? "固定費を編集" : "固定費を追加"} />
+                  <div className="mt-4 space-y-4">
+                    <Field label="名称">
+                      <input value={name} onChange={(event) => setName(event.target.value)} className="planner-field" placeholder="例: 家賃" />
+                    </Field>
+                    <Field label="標準金額">
+                      <input value={amount} onChange={(event) => setAmount(event.target.value)} type="number" inputMode="numeric" className="planner-field" placeholder="8000" />
+                    </Field>
+                    {editingId ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const target = templates.find((template) => template.id === editingId);
+                          if (target) {
+                            void remove(target);
+                          }
+                        }}
+                        className="planner-secondary-inline"
+                      >
+                        削除
+                      </button>
+                    ) : null}
+                  </div>
+                </section>
+              </div>
+            </div>
+            <StickyActionBar primaryLabel={editingId ? "更新" : "保存"} onPrimary={save} secondaryLabel="閉じる" onSecondary={reset} />
+          </div>
+        </div>
+      ) : null}
     </SettingsLayout>
   );
 }

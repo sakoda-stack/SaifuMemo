@@ -30,6 +30,8 @@ interface FixedRecordView {
   templateName: string;
 }
 
+const MEMBER_ALL = { id: "all", shortName: "全員" };
+
 export default function HomeScreen({
   onOpenList,
   onOpenFixedList,
@@ -45,6 +47,11 @@ export default function HomeScreen({
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [medicals, setMedicals] = useState<MedicalExpense[]>([]);
   const [fixedRecords, setFixedRecords] = useState<FixedRecordView[]>([]);
+
+  const resolveMemberLabel = (memberId?: string) => {
+    if (memberId === "all") return "全員";
+    return members.find((member) => member.id === memberId)?.shortName ?? "未設定";
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -86,40 +93,35 @@ export default function HomeScreen({
 
   const recentRecords = useMemo<RecentRecord[]>(() => {
     const categoryMap = new Map(categories.map((category) => [category.id, category]));
-    const memberMap = new Map(members.map((member) => [member.id, member]));
 
     return [
       ...expenses.map((expense) => {
         const category = categoryMap.get(expense.categoryId ?? "");
-        const member = memberMap.get(expense.memberId ?? "");
         return {
           id: expense.id,
           date: expense.date,
           amount: expense.amount,
           title: expense.shopName || expense.memo || "支出",
-          subtitle: `${member?.shortName ?? "未設定"} / ${category?.name ?? "未設定"}`,
+          subtitle: `${resolveMemberLabel(expense.memberId)} / ${category?.name ?? "未設定"}`,
           color: category?.colorHex ?? "#8f8577",
           icon: category?.icon ?? "ReceiptText",
         };
       }),
-      ...medicals.map((medical) => {
-        const member = memberMap.get(medical.memberId ?? "");
-        return {
-          id: medical.id,
-          date: medical.paymentDate,
-          amount: medical.amount,
-          title: medical.hospitalName || "医療費",
-          subtitle: `${member?.shortName ?? "未設定"} / ${medical.isTransportation ? "通院交通費" : medical.medicalType}`,
-          color: "#b84e41",
-          icon: "HeartPulse",
-        };
-      }),
+      ...medicals.map((medical) => ({
+        id: medical.id,
+        date: medical.paymentDate,
+        amount: medical.amount,
+        title: medical.hospitalName || "医療費",
+        subtitle: `${resolveMemberLabel(medical.memberId)} / ${medical.isTransportation ? "通院交通費" : medical.medicalType}`,
+        color: "#b84e41",
+        icon: "HeartPulse",
+      })),
     ]
       .sort((left, right) => right.date.localeCompare(left.date))
       .slice(0, 5);
   }, [categories, expenses, medicals, members]);
 
-  const memberOptions = [{ id: "all", shortName: "全員" }, ...members];
+  const memberOptions = [MEMBER_ALL, ...members];
 
   const goMonth = (delta: number) => {
     const next = addMonths(year, month, delta);
@@ -169,10 +171,16 @@ export default function HomeScreen({
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2.5">
-          <HomeSummaryCard label="支出" value={formatYen(monthTotal)} sideTop={`${recordCount}件`} sideBottom={leadingCategory ? leadingCategory.name : "未記録"} onClick={onOpenList} />
+          <HomeSummaryCard label="支出" value={formatYen(monthTotal)} sideTop={`${recordCount}件`} sideBottom={leadingCategory ? leadingCategory.name : "記録なし"} onClick={onOpenList} />
           <HomeSummaryCard label="医療費" value={formatYen(medicalTotal)} sideTop={`${medicals.length}件`} sideBottom="医療費" tone="medical" onClick={onOpenMedicalDashboard} />
-          <HomeSummaryCard label="記録日" value={`${activeDays}日`} sideTop="日別" sideBottom="カレンダー" onClick={onOpenCalendar} />
-          <HomeSummaryCard label="固定費" value={formatYen(fixedTotal)} sideTop={`${fixedRecords.length}件`} sideBottom={unconfirmedFixedCount > 0 ? `未確認 ${unconfirmedFixedCount}` : "確認済み"} onClick={onOpenFixedList} />
+          <HomeSummaryCard label="記録日" value={`${activeDays}日`} sideTop="日数" sideBottom="カレンダー" onClick={onOpenCalendar} />
+          <HomeSummaryCard
+            label="固定費"
+            value={formatYen(fixedTotal)}
+            sideTop={`${fixedRecords.length}件`}
+            sideBottom={unconfirmedFixedCount > 0 ? `未確認 ${unconfirmedFixedCount}` : "確認済み"}
+            onClick={onOpenFixedList}
+          />
         </div>
       </section>
 

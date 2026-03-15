@@ -673,7 +673,15 @@ button {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+}
+
+.planner-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .planner-inline-header-bottom {
@@ -721,11 +729,13 @@ button {
 
 .planner-home-summary-value {
   margin: 3px 0 0;
-  font-size: clamp(15px, 4vw, 18px);
+  font-size: clamp(14px, 3.7vw, 17px);
   font-weight: 700;
   line-height: 1.1;
   color: var(--planner-text);
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .planner-home-summary-accent .planner-home-summary-value {
@@ -967,6 +977,11 @@ button {
 
   .planner-inline-header {
     align-items: center;
+  }
+
+  .planner-inline-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .planner-calendar-tile {

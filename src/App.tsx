@@ -44,8 +44,13 @@ export default function App() {
   }, []);
 
   const onSaved = () => {
+    const savedFlow = addFlow;
     setAddFlow(null);
     setShowAddMenu(false);
+    if (savedFlow === "expense-manual") {
+      setListFilter("all");
+      setPage("list");
+    }
     setRefreshKey((current) => current + 1);
   };
 
@@ -111,7 +116,7 @@ export default function App() {
                 onAddMedical={(date) => openAddFlow("medical-manual", date)}
               />
             ) : null}
-            {page === "medical" ? <MedicalScreen key={refreshKey} /> : null}
+            {page === "medical" ? <MedicalScreen key={refreshKey} onAddMedical={() => openAddFlow("medical-manual")} /> : null}
             {page === "settings" ? <SettingsScreen key={refreshKey} /> : null}
           </div>
         </main>

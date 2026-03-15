@@ -24,6 +24,7 @@ export default function AddExpenseModal({ initialDate, onClose, onSaved }: Props
   const [memo, setMemo] = useState("");
   const [newShopName, setNewShopName] = useState("");
   const [showNewShop, setShowNewShop] = useState(false);
+  const memberOptions = [{ id: "all", shortName: "全員" }, ...members];
 
   useEffect(() => {
     const load = async () => {
@@ -90,7 +91,7 @@ export default function AddExpenseModal({ initialDate, onClose, onSaved }: Props
       isChecked: false,
       isFixed: false,
       productName: "",
-      memberId: selectedMember || undefined,
+      memberId: selectedMember === "all" ? undefined : selectedMember || undefined,
       categoryId: selectedCategory || undefined,
       shopId,
       shopName,
@@ -152,7 +153,7 @@ export default function AddExpenseModal({ initialDate, onClose, onSaved }: Props
 
                 <Field label="対象者">
                   <div className="planner-pill-grid">
-                    {members.map((member) => (
+                    {memberOptions.map((member) => (
                       <button
                         key={member.id}
                         type="button"

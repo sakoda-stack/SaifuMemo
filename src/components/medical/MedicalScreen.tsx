@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, HeartPulse } from "lucide-react";
+import { Download, HeartPulse, Plus } from "lucide-react";
 import { db } from "@/db/database";
 import { DataBadge, EmptyState, SectionHeader } from "@/components/ui/PlannerUI";
 import { downloadCSV, formatYen, generateMedicalCSV } from "@/utils";
 import type { MedicalExpense, Member, ShopMaster } from "@/types";
 
-export default function MedicalScreen() {
+export default function MedicalScreen({ onAddMedical }: { onAddMedical: () => void }) {
   const currentYear = new Date().getFullYear();
+  const yearOptions = [currentYear - 1, currentYear, currentYear + 1];
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [selectedMember, setSelectedMember] = useState("all");
   const [records, setRecords] = useState<MedicalExpense[]>([]);
@@ -35,7 +36,10 @@ export default function MedicalScreen() {
     void load();
   }, [selectedMember, selectedYear]);
 
-  const getMemberName = (id?: string) => members.find((member) => member.id === id)?.shortName ?? "";
+  const getMemberName = (id?: string) => {
+    if (id === "all") return "全員";
+    return members.find((member) => member.id === id)?.shortName ?? "";
+  };
   const getHospitalName = (id?: string) => shops.get(id ?? "")?.name ?? "";
 
   const totals = useMemo(() => {
@@ -87,17 +91,31 @@ export default function MedicalScreen() {
       <section className="planner-card">
         <div className="planner-inline-header">
           <h2 className="planner-section-title">{selectedYear}年</h2>
-          <button type="button" onClick={exportCsv} className="planner-icon-button" aria-label="CSVを書き出す">
-            <Download size={16} />
-          </button>
+          <div className="planner-inline-actions">
+            <button type="button" onClick={onAddMedical} className="planner-primary-inline planner-primary-inline-medical">
+              <Plus size={16} />
+              追加
+            </button>
+            <button type="button" onClick={exportCsv} className="planner-icon-button" aria-label="CSV出力">
+              <Download size={16} />
+              CSV
+            </button>
+          </div>
         </div>
-        <div className="mt-3 planner-pill-grid planner-pill-grid-compact">
-          {[currentYear, currentYear - 1, currentYear - 2].map((year) => (
-            <button key={year} type="button" onClick={() => setSelectedYear(year)} className={`planner-pill ${selectedYear === year ? "planner-pill-active" : ""}`}>
+
+        <div className="mt-3 planner-segmented">
+          {yearOptions.map((year) => (
+            <button
+              key={year}
+              type="button"
+              onClick={() => setSelectedYear(year)}
+              className={`planner-segmented-option ${selectedYear === year ? "planner-segmented-option-active" : ""}`}
+            >
               {year}年
             </button>
           ))}
         </div>
+
         <div className="mt-3 planner-pill-grid planner-pill-grid-compact">
           {[{ id: "all", shortName: "全員" }, ...members].map((member) => (
             <button
@@ -110,6 +128,7 @@ export default function MedicalScreen() {
             </button>
           ))}
         </div>
+
         <div className="mt-3 grid grid-cols-2 gap-2.5">
           <MetricBlock label="合計" value={formatYen(totals.total)} side={`${totals.count}件`} />
           <MetricBlock label="補填後" value={formatYen(totals.netTotal)} side={totals.reimbursed > 0 ? formatYen(totals.reimbursed) : "補填なし"} tone="medical" />
