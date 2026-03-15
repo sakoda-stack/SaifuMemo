@@ -21,7 +21,7 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: "autoUpdate",
-        includeAssets: ["saifu.png", "favicon.png", "apple-touch-icon.png", "icons/*.png"],
+        includeAssets: ["saifu.png", "favicon.png", "apple-touch-icon.png", "どるあいこん.png", "icons/*.png"],
         manifest: {
           name: "さいふメモ",
           short_name: "さいふメモ",
@@ -33,9 +33,8 @@ export default defineConfig(({ mode }) => {
           start_url: base,
           scope: base,
           icons: [
-            { src: "icons/icon-192.png", sizes: "192x192", type: "image/png" },
-            { src: "icons/icon-512.png", sizes: "512x512", type: "image/png" },
-            { src: "icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+            { src: "どるあいこん.png", sizes: "1749x1588", type: "image/png" },
+            { src: "どるあいこん.png", sizes: "1749x1588", type: "image/png", purpose: "any maskable" },
           ],
         },
         workbox: {

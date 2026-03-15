@@ -43,7 +43,7 @@ export default function ExpenseBreakdownDonut({ segments, activeLabel, onSelect 
 
     return {
       ...segment,
-      displayColor: softenColor(segment.color, 0.78),
+      displayColor: segment.color,
       isActive,
       middleAngle,
       isRightSide,
@@ -93,7 +93,7 @@ export default function ExpenseBreakdownDonut({ segments, activeLabel, onSelect 
                   <path
                     d={`M ${segment.lineStartX} ${segment.lineStartY} L ${segment.lineMidX} ${segment.lineMidY} L ${segment.outerLabelX + (segment.isRightSide ? -8 : 8)} ${segment.outerLabelY}`}
                     fill="none"
-                    stroke={segment.displayColor}
+                    stroke={segment.color}
                     strokeWidth="1.4"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -109,7 +109,7 @@ export default function ExpenseBreakdownDonut({ segments, activeLabel, onSelect 
 
         {activeSegment ? (
           <div className="planner-breakdown-selection">
-            <span className="planner-breakdown-selection-chip" style={{ backgroundColor: `${activeSegment.displayColor}26`, color: activeSegment.color }}>
+            <span className="planner-breakdown-selection-chip" style={{ backgroundColor: `${activeSegment.color}18`, color: activeSegment.color }}>
               {activeSegment.label}
             </span>
             <strong className="planner-breakdown-selection-value">{activeSegment.percentage.toFixed(1)}%</strong>
@@ -121,7 +121,7 @@ export default function ExpenseBreakdownDonut({ segments, activeLabel, onSelect 
       <div className="planner-breakdown-legend">
         {adjustedLabels.map((segment) => (
           <button key={segment.id} type="button" onClick={() => onSelect(segment)} className={`planner-breakdown-legend-item ${segment.isActive ? "planner-breakdown-legend-item-active" : ""}`}>
-            <span className="planner-breakdown-legend-swatch" style={{ backgroundColor: segment.displayColor, boxShadow: `0 0 0 2px ${segment.displayColor}22` }} />
+            <span className="planner-breakdown-legend-swatch" style={{ backgroundColor: segment.color, boxShadow: `0 0 0 2px ${segment.color}22` }} />
             <span className="min-w-0 flex-1">
               <span className="planner-breakdown-legend-top">
                 <span className="planner-breakdown-legend-label">{segment.label}</span>
@@ -141,20 +141,6 @@ function polarToCartesian(angle: number, radius: number, offsetX = 0, offsetY = 
     x: CENTER + offsetX + Math.cos(angle) * radius,
     y: CENTER + offsetY + Math.sin(angle) * radius,
   };
-}
-
-function softenColor(hex: string, ratio: number) {
-  const normalized = hex.replace("#", "");
-  if (!/^[\da-fA-F]{6}$/.test(normalized)) return hex;
-
-  const toSoft = (offset: number) => {
-    const value = parseInt(normalized.slice(offset, offset + 2), 16);
-    return Math.round(value + (255 - value) * ratio)
-      .toString(16)
-      .padStart(2, "0");
-  };
-
-  return `#${toSoft(0)}${toSoft(2)}${toSoft(4)}`;
 }
 
 function createSlicePath(startAngle: number, endAngle: number, offsetX = 0, offsetY = 0) {
