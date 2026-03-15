@@ -24,6 +24,16 @@ import { todayString } from "@/utils";
 type Page = "home" | "list" | "calendar" | "more" | "compare" | "medical" | "settings";
 type AddFlow = "expense-manual" | "expense-receipt" | "medical-manual" | "medical-receipt" | null;
 
+const PAGE_META: Record<Page, { title: string; description: string }> = {
+  home: { title: "今月の家計ポータル", description: "今月の状況と次の操作を短いスクロールで確認します。" },
+  list: { title: "記録一覧", description: "日付ごとに整理した支出と医療費を確認します。" },
+  calendar: { title: "カレンダー", description: "上部カレンダーから日別確認と入力へつなげます。" },
+  more: { title: "その他", description: "分析、医療費、設定などの補助機能をまとめています。" },
+  compare: { title: "スーパー分析", description: "各スーパーで安い商品を商品別に見比べます。" },
+  medical: { title: "医療費ダッシュボード", description: "年間の医療費、補填後金額、対象者別の動きを確認します。" },
+  settings: { title: "設定", description: "データや OCR 周りの設定を整理します。" },
+};
+
 const BOTTOM_NAV = [
   { id: "home", label: "ホーム", icon: Home },
   { id: "list", label: "記録", icon: List },
@@ -82,23 +92,12 @@ export default function App() {
         <header className="planner-app-bar">
           <div className="min-w-0 flex-1">
             <p className="planner-app-bar-kicker">SaifuMemo</p>
-            <p className="planner-app-bar-title">
-              {page === "home" && "今月の家計ポータル"}
-              {page === "list" && "記録一覧"}
-              {page === "calendar" && "カレンダー"}
-              {page === "more" && "その他"}
-              {page === "compare" && "スーパー分析"}
-              {page === "medical" && "医療費ダッシュボード"}
-              {page === "settings" && "設定"}
-            </p>
+            <h1 className="planner-app-bar-title">{PAGE_META[page].title}</h1>
+            <p className="planner-app-bar-description">{PAGE_META[page].description}</p>
           </div>
-          <button type="button" onClick={() => openAddMenu()} className="planner-header-action shrink-0" aria-label="記録を追加">
-            <Plus size={18} />
-            <span>追加</span>
-          </button>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-y-auto px-3 pb-24">
+        <main className="min-h-0 flex-1 overflow-y-auto px-3 pb-24 pt-1">
           <div className="planner-sheet">
             {page === "home" ? (
               <HomeScreen

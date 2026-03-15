@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, HeartPulse, NotebookPen, ScanText } from "lucide-react";
 import { db } from "@/db/database";
-import { DataBadge, EmptyState, MetricCard, ScreenIntro, SectionHeader } from "@/components/ui/PlannerUI";
+import { DataBadge, EmptyState, SectionHeader } from "@/components/ui/PlannerUI";
 import { addMonths, compactYen, formatDateDisplay, formatMonthYear, formatYen, getMonthRange, toDateString } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
 
@@ -124,12 +124,14 @@ export default function CalendarScreen({
 
   return (
     <div className="planner-page">
-      <ScreenIntro
-        kicker="CALENDAR"
-        title={formatMonthYear(year, month)}
-        description="日付をタップすると、その日の確認と追加がそのままつながります。"
-        action={
-          <div className="planner-month-switcher">
+      <section className="planner-card">
+        <div className="planner-inline-header">
+          <div className="min-w-0">
+            <p className="planner-kicker">MONTH</p>
+            <h2 className="planner-section-title">{formatMonthYear(year, month)}</h2>
+            <p className="planner-section-description">上のカレンダーを起点に、その日の確認と追加を続けて行えます。</p>
+          </div>
+          <div className="planner-month-switcher shrink-0">
             <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
               <ChevronLeft size={16} />
             </button>
@@ -143,14 +145,13 @@ export default function CalendarScreen({
               <ChevronRight size={16} />
             </button>
           </div>
-        }
-      />
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <MetricCard label="今月の合計" value={formatYen(monthTotal)} note="支出と医療費を合算" />
-        <MetricCard label="記録件数" value={`${monthEntries.length} 件`} note="日付セルから確認できます" />
-        <MetricCard label="動いた日" value={`${activeDays} 日`} note="入力のある日だけを集計" />
-      </div>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <CompactOverviewStat label="合計" value={formatYen(monthTotal)} note="支出+医療費" />
+          <CompactOverviewStat label="件数" value={`${monthEntries.length}件`} note="今月の記録" />
+          <CompactOverviewStat label="動いた日" value={`${activeDays}日`} note="入力あり" />
+        </div>
+      </section>
 
       <section className="planner-card overflow-hidden">
         <div className="planner-calendar-header">
@@ -251,6 +252,16 @@ export default function CalendarScreen({
         </div>
       </section>
     </div>
+  );
+}
+
+function CompactOverviewStat({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <article className="planner-compact-stat">
+      <p className="planner-compact-stat-label">{label}</p>
+      <p className="planner-compact-stat-value">{value}</p>
+      <p className="planner-compact-stat-note">{note}</p>
+    </article>
   );
 }
 

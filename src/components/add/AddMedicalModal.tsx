@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetSta
 import { Camera, CheckCheck, Download, HeartPulse, Image, Plus, ScanText } from "lucide-react";
 import { v4 as uuid } from "uuid";
 import { db } from "@/db/database";
-import { ActionCard, DataBadge, EmptyState, ScreenIntro, SectionHeader, SegmentedControl, StickyActionBar } from "@/components/ui/PlannerUI";
+import { ActionCard, DataBadge, EmptyState, SectionHeader, SegmentedControl, StickyActionBar } from "@/components/ui/PlannerUI";
 import { fileToBase64, formatYen, MEDICAL_TYPES, normalizeDateInput, todayString } from "@/utils";
 import { downloadDataUrl, recognizeMedicalReceipt, type MedicalOcrDraft, type OcrEngine } from "@/utils/ocr";
 import type { MedicalType, Member, ShopMaster } from "@/types";
@@ -201,21 +201,22 @@ export default function AddMedicalModal({ initialDate, initialMode = "manual", o
       <div className="planner-modal-sheet">
         <div className="planner-modal-scroll">
           <div className="planner-page">
-            <ScreenIntro
-              kicker="MEDICAL"
-              title="医療費を追加"
-              description="手入力とレシート入力を分け、病院名や医療区分は候補として確認できるようにします。"
-            />
-
             <section className="planner-card">
-              <SegmentedControl
-                value={mode}
-                onChange={setMode}
-                options={[
-                  { value: "manual", label: "手入力" },
-                  { value: "receipt", label: "レシート入力" },
-                ]}
+              <SectionHeader
+                kicker="MEDICAL"
+                title="医療費を追加"
+                description="候補を確認してから、確定した病院名や区分だけを保存します。"
               />
+              <div className="mt-3">
+                <SegmentedControl
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: "manual", label: "手入力" },
+                    { value: "receipt", label: "レシート入力" },
+                  ]}
+                />
+              </div>
             </section>
 
             {mode === "receipt" ? (
@@ -401,7 +402,7 @@ export default function AddMedicalModal({ initialDate, initialMode = "manual", o
                     </button>
                   </div>
                   {showNewHospital ? (
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                       <input value={newHospitalName} onChange={(event) => setNewHospitalName(event.target.value)} className="planner-field" placeholder="病院 / 薬局名" />
                       <button type="button" onClick={addHospital} className="planner-primary-inline planner-primary-inline-medical">
                         追加

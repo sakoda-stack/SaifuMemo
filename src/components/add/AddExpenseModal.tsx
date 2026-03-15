@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Camera, CheckCheck, Download, Image, Plus, ScanText } from "lucide-react";
 import { v4 as uuid } from "uuid";
 import { db, replaceReceiptItemObservations } from "@/db/database";
-import { ActionCard, EmptyState, ScreenIntro, SectionHeader, SegmentedControl, StickyActionBar } from "@/components/ui/PlannerUI";
+import { ActionCard, EmptyState, SectionHeader, SegmentedControl, StickyActionBar } from "@/components/ui/PlannerUI";
 import { fileToBase64, formatYen, normalizeDateInput, todayString } from "@/utils";
 import { downloadDataUrl, recognizeExpenseReceipt, toObservationPayload, type ExpenseOcrDraft, type OcrEngine, type OcrReceiptItem } from "@/utils/ocr";
 import { resolveIcon } from "@/utils/icons";
@@ -230,21 +230,22 @@ export default function AddExpenseModal({ initialDate, initialMode = "manual", o
       <div className="planner-modal-sheet">
         <div className="planner-modal-scroll">
           <div className="planner-page">
-            <ScreenIntro
-              kicker="EXPENSE"
-              title="支出を追加"
-              description="手入力とレシート入力を分けて、OCR はフォーム単位で確認してから反映します。"
-            />
-
             <section className="planner-card">
-              <SegmentedControl
-                value={mode}
-                onChange={setMode}
-                options={[
-                  { value: "manual", label: "手入力" },
-                  { value: "receipt", label: "レシート入力" },
-                ]}
+              <SectionHeader
+                kicker="EXPENSE"
+                title="支出を追加"
+                description="手入力とレシート入力を切り替え、必要な項目だけを短く埋めます。"
               />
+              <div className="mt-3">
+                <SegmentedControl
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: "manual", label: "手入力" },
+                    { value: "receipt", label: "レシート入力" },
+                  ]}
+                />
+              </div>
             </section>
 
             {mode === "receipt" ? (
@@ -316,7 +317,7 @@ export default function AddExpenseModal({ initialDate, initialMode = "manual", o
                                         className="planner-field"
                                         placeholder="商品名"
                                       />
-                                      <div className="grid grid-cols-[1fr_96px_1fr] gap-2">
+                                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_88px_minmax(0,1fr)]">
                                         <input
                                           value={item.quantity ?? ""}
                                           onChange={(event) => updateReviewItem(index, "quantity", event.target.value)}
@@ -333,7 +334,7 @@ export default function AddExpenseModal({ initialDate, initialMode = "manual", o
                                         <input
                                           value={item.totalPrice}
                                           onChange={(event) => updateReviewItem(index, "totalPrice", event.target.value)}
-                                          className="planner-field"
+                                          className="planner-field col-span-2 sm:col-span-1"
                                           inputMode="numeric"
                                           placeholder="金額"
                                         />
@@ -375,7 +376,7 @@ export default function AddExpenseModal({ initialDate, initialMode = "manual", o
                 </div>
 
                 <Field label="カテゴリ">
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {categories.map((category) => {
                       const Icon = resolveIcon(category.icon, "ReceiptText");
                       const active = selectedCategory === category.id;
@@ -432,11 +433,11 @@ export default function AddExpenseModal({ initialDate, initialMode = "manual", o
                         新規
                       </button>
                     </div>
-                    {showNewShop ? (
-                      <div className="mt-3 flex gap-2">
-                        <input value={newShopName} onChange={(event) => setNewShopName(event.target.value)} className="planner-field" placeholder="店舗名" />
-                        <button type="button" onClick={addShop} className="planner-primary-inline planner-primary-inline-accent">
-                          追加
+                  {showNewShop ? (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                      <input value={newShopName} onChange={(event) => setNewShopName(event.target.value)} className="planner-field" placeholder="店舗名" />
+                      <button type="button" onClick={addShop} className="planner-primary-inline planner-primary-inline-accent">
+                        追加
                         </button>
                       </div>
                     ) : null}

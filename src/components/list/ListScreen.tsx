@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronLeft, ChevronRight, Circle, HeartPulse, Trash2 } from "lucide-react";
 import { db, deleteExpenseCascade } from "@/db/database";
-import { DataBadge, EmptyState, MetricCard, ScreenIntro, SectionHeader } from "@/components/ui/PlannerUI";
+import { DataBadge, EmptyState, SectionHeader } from "@/components/ui/PlannerUI";
 import { addMonths, formatDateDisplay, formatMonthYear, formatYen, getMonthRange } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
 import type { Category, Expense, MedicalExpense, Member } from "@/types";
@@ -135,12 +135,14 @@ export default function ListScreen() {
 
   return (
     <div className="planner-page">
-      <ScreenIntro
-        kicker="LIST"
-        title={formatMonthYear(year, month)}
-        description="日付ごとにまとめて、金額、カテゴリ、店舗、確認状態を見やすく並べます。"
-        action={
-          <div className="planner-month-switcher">
+      <section className="planner-card">
+        <div className="planner-inline-header">
+          <div className="min-w-0">
+            <p className="planner-kicker">MONTH</p>
+            <h2 className="planner-section-title">{formatMonthYear(year, month)}</h2>
+            <p className="planner-section-description">条件を切り替えながら今月の記録をまとめて確認します。</p>
+          </div>
+          <div className="planner-month-switcher shrink-0">
             <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
               <ChevronLeft size={16} />
             </button>
@@ -154,12 +156,8 @@ export default function ListScreen() {
               <ChevronRight size={16} />
             </button>
           </div>
-        }
-      />
-
-      <section className="planner-card">
-        <SectionHeader kicker="FILTER" title="表示条件" description="未確認や画像付きだけに絞れます。" />
-        <div className="mt-4 planner-pill-grid">
+        </div>
+        <div className="mt-3 planner-pill-grid planner-pill-grid-compact">
           {(Object.keys(FILTER_LABELS) as Filter[]).map((currentFilter) => (
             <button
               key={currentFilter}
@@ -171,10 +169,10 @@ export default function ListScreen() {
             </button>
           ))}
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <MetricCard label="合計件数" value={`${expenses.length + medicals.length} 件`} note="今月の全記録" />
-          <MetricCard label="未確認" value={`${uncheckedCount} 件`} note="チェック待ち" />
-          <MetricCard label="画像あり" value={`${imageCount} 件`} note="OCRまたはレシート写真つき" />
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <CompactOverviewStat label="合計" value={`${expenses.length + medicals.length}件`} note="今月" />
+          <CompactOverviewStat label="未確認" value={`${uncheckedCount}件`} note="チェック待ち" />
+          <CompactOverviewStat label="画像" value={`${imageCount}件`} note="OCRつき" />
         </div>
       </section>
 
@@ -244,5 +242,15 @@ export default function ListScreen() {
         ))
       )}
     </div>
+  );
+}
+
+function CompactOverviewStat({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <article className="planner-compact-stat">
+      <p className="planner-compact-stat-label">{label}</p>
+      <p className="planner-compact-stat-value">{value}</p>
+      <p className="planner-compact-stat-note">{note}</p>
+    </article>
   );
 }

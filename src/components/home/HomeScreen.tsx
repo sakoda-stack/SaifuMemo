@@ -151,6 +151,7 @@ export default function HomeScreen({
   const topDeal = productComparisons[0];
   const fixedTemplateMap = new Map(fixedTemplates.map((template) => [template.id, template.name]));
   const leadingCategory = topCategories[0];
+  const memberOptions = [{ id: "all", shortName: "全員" }, ...members];
 
   const goMonth = (delta: number) => {
     const next = addMonths(year, month, delta);
@@ -169,7 +170,7 @@ export default function HomeScreen({
           <div className="min-w-0 flex-1">
             <p className="planner-kicker">NOW</p>
             <h1 className="planner-home-title">{formatMonthYear(year, month)}</h1>
-            <p className="planner-home-caption">対象者を先に選んでから、今月の数字を見る構成にしています。</p>
+            <p className="planner-home-caption">対象者を切り替えてから、今月の数字と導線をまとめて確認します。</p>
           </div>
           <div className="planner-month-switcher shrink-0">
             <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
@@ -188,7 +189,7 @@ export default function HomeScreen({
         </div>
 
         <div className="mt-3 planner-pill-grid planner-pill-grid-compact">
-          {[{ id: "all", shortName: "全員" }, ...members].map((member) => (
+          {memberOptions.map((member) => (
             <button
               key={member.id}
               type="button"
@@ -200,13 +201,14 @@ export default function HomeScreen({
           ))}
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="mt-4 grid grid-cols-2 gap-2.5">
           <HomeSummaryCard
             label="支出合計"
             value={formatYen(monthTotal)}
             tone="accent"
             sideTop={`${recordCount} 件`}
             sideBottom={leadingCategory ? `最多 ${leadingCategory.name}` : "記録なし"}
+            onClick={onOpenList}
           />
           <HomeSummaryCard
             label="医療費"
@@ -214,36 +216,48 @@ export default function HomeScreen({
             tone="medical"
             sideTop={`${medicals.length} 件`}
             sideBottom={medicals.length > 0 ? "補填前合計" : "未記録"}
+            onClick={onOpenMedicalDashboard}
           />
           <HomeSummaryCard
             label="動きのある日"
             value={`${activeDays}日`}
             sideTop={`OCR待ち ${pendingOcrCount}`}
             sideBottom={activeDays > 0 ? "入力のある日数" : "まだ動きなし"}
+            onClick={onOpenCalendar}
           />
           <HomeSummaryCard
             label="固定費"
             value={formatYen(fixedTotal)}
             sideTop={unconfirmedFixedCount > 0 ? `未確認 ${unconfirmedFixedCount}` : "確認済み"}
             sideBottom={fixedRecords.length > 0 ? `${fixedRecords.length} 件` : "テンプレート待ち"}
+            onClick={onOpenList}
           />
         </div>
       </section>
 
       <section className="planner-card">
-        <SectionHeader kicker="QUICK ACTION" title="すぐ使う入口" description="主要動線だけを短い説明で並べます。" />
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <ActionCard title="手入力" description="ふだんの支出をすぐ記録" icon={<NotebookPen size={18} />} tone="accent" onClick={() => onOpenExpenseManual()} />
-          <ActionCard title="レシート入力" description="OCR 結果を確認して反映" icon={<ScanText size={18} />} tone="accent" onClick={() => onOpenExpenseReceipt()} />
-          <ActionCard title="カレンダー" description="日付を起点に確認と追加" icon={<List size={18} />} tone="soft" onClick={onOpenCalendar} />
-          <ActionCard title="医療費" description="医療費ダッシュボードへ移動" icon={<HeartPulse size={18} />} tone="medical" onClick={onOpenMedicalDashboard} />
-          <ActionCard title="スーパー分析" description="各店で何が安いかを見る" icon={<Store size={18} />} tone="accent" onClick={onOpenCompare} />
-          <ActionCard title="医療費を追加" description="通院分を手入力またはOCRで追加" icon={<HeartPulse size={18} />} tone="medical" onClick={() => onOpenMedicalManual()} />
+        <SectionHeader kicker="QUICK ACTION" title="すぐ使う入口" description="追加と確認の主要動線だけを短く並べます。" />
+        <div className="mt-4 grid grid-cols-2 gap-2.5">
+          <ActionCard title="手入力" description="支出を記録" icon={<NotebookPen size={18} />} tone="accent" onClick={() => onOpenExpenseManual()} />
+          <ActionCard title="レシート" description="OCR で追加" icon={<ScanText size={18} />} tone="accent" onClick={() => onOpenExpenseReceipt()} />
+          <ActionCard title="カレンダー" description="日別に確認" icon={<List size={18} />} tone="soft" onClick={onOpenCalendar} />
+          <ActionCard title="医療費" description="集計を見る" icon={<HeartPulse size={18} />} tone="medical" onClick={onOpenMedicalDashboard} />
+          <ActionCard title="比較" description="店ごとに確認" icon={<Store size={18} />} tone="accent" onClick={onOpenCompare} />
+          <ActionCard title="医療追加" description="通院分を記録" icon={<HeartPulse size={18} />} tone="medical" onClick={() => onOpenMedicalManual()} />
         </div>
       </section>
 
       <section className="planner-card">
-        <SectionHeader kicker="RECENT" title="最近の記録" description="直近の流れを短い行で確認できます。" />
+        <SectionHeader
+          kicker="RECENT"
+          title="最近の記録"
+          description="直近の流れを短い行で確認できます。"
+          action={
+            <button type="button" onClick={onOpenList} className="planner-link-row planner-link-row-compact">
+              記録一覧へ
+            </button>
+          }
+        />
         <div className="mt-4 space-y-3">
           {recentRecords.length === 0 ? (
             <EmptyState title="まだ記録がありません" message="今月の記録を追加すると、ここに最近の支出と医療費が並びます。" />
@@ -251,7 +265,7 @@ export default function HomeScreen({
             recentRecords.map((record) => {
               const Icon = resolveIcon(record.icon, "ReceiptText");
               return (
-                <div key={record.id} className="planner-summary-row">
+                <button key={record.id} type="button" onClick={onOpenList} className="planner-summary-row planner-summary-row-button">
                   <div className="planner-summary-icon" style={{ backgroundColor: `${record.color}18`, color: record.color }}>
                     <Icon size={16} />
                   </div>
@@ -262,7 +276,7 @@ export default function HomeScreen({
                     </div>
                     <p className="truncate text-xs text-[var(--planner-subtle)]">{record.date} / {record.subtitle}</p>
                   </div>
-                </div>
+                </button>
               );
             })
           )}
@@ -273,7 +287,7 @@ export default function HomeScreen({
         <section className="planner-card">
           <SectionHeader kicker="INSIGHT" title="補助情報" description="医療費、固定費、OCR確認待ちを短く整理します。" />
           <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-            <div className="planner-note-card planner-note-card-compact">
+            <button type="button" onClick={onOpenMedicalDashboard} className="planner-note-card planner-note-card-compact planner-note-button">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="planner-kicker">今月の医療費</p>
@@ -282,9 +296,9 @@ export default function HomeScreen({
                 {medicalTotal > 0 ? <DataBadge label={`${medicals.length} 件`} tone="medical" /> : <DataBadge label="未記録" />}
               </div>
               <p className="mt-2 text-xs text-[var(--planner-subtle)]">支出とは分けて確認できます。</p>
-            </div>
+            </button>
 
-            <div className="planner-note-card planner-note-card-compact">
+            <button type="button" onClick={onOpenList} className="planner-note-card planner-note-card-compact planner-note-button">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="planner-kicker">固定費</p>
@@ -298,9 +312,9 @@ export default function HomeScreen({
                   .map((record) => fixedTemplateMap.get(record.templateId ?? "") ?? "固定費")
                   .join(" / ") || "固定費テンプレートを設定すると今月の定例支出を一覧できます。"}
               </p>
-            </div>
+            </button>
 
-            <div className="planner-note-card planner-note-card-compact">
+            <button type="button" onClick={onOpenList} className="planner-note-card planner-note-card-compact planner-note-button">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="planner-kicker">OCR 未確認</p>
@@ -309,10 +323,7 @@ export default function HomeScreen({
                 {pendingOcrCount > 0 ? <DataBadge label="チェック推奨" tone="warning" /> : <DataBadge label="0 件" />}
               </div>
               <p className="mt-2 text-xs text-[var(--planner-subtle)]">一覧画面からまとめて確認できます。</p>
-              <button type="button" onClick={onOpenList} className="mt-2 text-xs font-semibold text-[var(--planner-accent)]">
-                記録一覧を開く
-              </button>
-            </div>
+            </button>
           </div>
         </section>
 
@@ -320,19 +331,19 @@ export default function HomeScreen({
           <SectionHeader kicker="COMPARE" title="比較の要約" description="まずは各スーパーの強みから見せます。" />
           <div className="mt-4 space-y-3">
             {topStore ? (
-              <div className="planner-note-card">
+              <button type="button" onClick={onOpenCompare} className="planner-note-card planner-note-button">
                 <p className="planner-kicker">得意な店</p>
                 <p className="mt-2 text-lg font-semibold">{topStore.shopName}</p>
                 <p className="mt-2 text-sm text-[var(--planner-subtle)]">
                   強い商品 {topStore.strongWinCount} 件 / 勝ち筋 {topStore.winCount} 件 / 平均 {compactYen(topStore.averageWinningPrice)}
                 </p>
-              </div>
+              </button>
             ) : (
               <EmptyState title="比較データがまだ少ないです" message="レシートOCRで商品行を読み込むと、各店の得意商品を自動で整理します。" />
             )}
 
             {topDeal ? (
-              <div className="planner-note-card">
+              <button type="button" onClick={onOpenCompare} className="planner-note-card planner-note-button">
                 <p className="planner-kicker">最安メモ</p>
                 <p className="mt-2 text-lg font-semibold">{topDeal.itemLabel}</p>
                 <p className="mt-2 text-sm text-[var(--planner-subtle)]">
@@ -343,7 +354,7 @@ export default function HomeScreen({
                     ? `${topDeal.best.comparisonPrice.toLocaleString("ja-JP")} / ${topDeal.best.quantityUnit}`
                     : formatYen(topDeal.best.comparisonPrice)}
                 </p>
-              </div>
+              </button>
             ) : null}
 
             <button type="button" onClick={onOpenCompare} className="planner-link-row">
@@ -388,11 +399,11 @@ export default function HomeScreen({
 
       <section className="planner-card">
         <SectionHeader kicker="SHORTCUT" title="入力導線" description="日付から入るか、入力方式から入るかを選べます。" />
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <ActionCard title="今日の支出を手入力" description="日付つきでそのまま追加" icon={<NotebookPen size={18} />} tone="accent" onClick={() => onOpenExpenseManual()} />
-          <ActionCard title="今日のレシートを読む" description="商品一覧をフォームで確認" icon={<ReceiptText size={18} />} tone="accent" onClick={() => onOpenExpenseReceipt()} />
-          <ActionCard title="医療費を手入力" description="家族と補填額を先に整理" icon={<HeartPulse size={18} />} tone="medical" onClick={() => onOpenMedicalManual()} />
-          <ActionCard title="医療レシートを読む" description="病院名や薬候補を抽出" icon={<ScanText size={18} />} tone="medical" onClick={() => onOpenMedicalReceipt()} />
+        <div className="mt-4 grid grid-cols-2 gap-2.5">
+          <ActionCard title="支出を手入力" description="今日の日付で追加" icon={<NotebookPen size={18} />} tone="accent" onClick={() => onOpenExpenseManual()} />
+          <ActionCard title="レシートを読む" description="商品行を確認" icon={<ReceiptText size={18} />} tone="accent" onClick={() => onOpenExpenseReceipt()} />
+          <ActionCard title="医療費を手入力" description="家族と補填額を整理" icon={<HeartPulse size={18} />} tone="medical" onClick={() => onOpenMedicalManual()} />
+          <ActionCard title="医療OCR" description="病院名候補を反映" icon={<ScanText size={18} />} tone="medical" onClick={() => onOpenMedicalReceipt()} />
         </div>
       </section>
     </div>
@@ -405,15 +416,17 @@ function HomeSummaryCard({
   sideTop,
   sideBottom,
   tone = "default",
+  onClick,
 }: {
   label: string;
   value: string;
   sideTop: string;
   sideBottom: string;
   tone?: "default" | "accent" | "medical";
+  onClick?: () => void;
 }) {
-  return (
-    <article className={`planner-home-summary planner-home-summary-${tone}`}>
+  const content = (
+    <>
       <div className="min-w-0 flex-1">
         <p className="planner-kicker">{label}</p>
         <p className="planner-home-summary-value">{value}</p>
@@ -422,6 +435,16 @@ function HomeSummaryCard({
         <span className="planner-home-summary-meta">{sideTop}</span>
         <span className="planner-home-summary-note">{sideBottom}</span>
       </div>
-    </article>
+    </>
+  );
+
+  if (!onClick) {
+    return <article className={`planner-home-summary planner-home-summary-${tone}`}>{content}</article>;
+  }
+
+  return (
+    <button type="button" onClick={onClick} className={`planner-home-summary planner-home-summary-${tone} planner-home-summary-button`}>
+      {content}
+    </button>
   );
 }
