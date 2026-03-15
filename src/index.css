@@ -642,13 +642,26 @@ button {
 }
 
 .planner-modal-sheet {
-  inset: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom)) 8px;
+  right: 8px;
+  bottom: max(8px, env(safe-area-inset-bottom));
+  left: 8px;
   width: auto;
+  max-height: min(82vh, 760px);
   transform: none;
-  border-radius: 18px;
+  border-radius: 18px 18px 0 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.planner-modal-sheet::before {
+  content: "";
+  width: 44px;
+  height: 4px;
+  margin: 10px auto 2px;
+  border-radius: 999px;
+  background: var(--planner-line-strong);
+  flex-shrink: 0;
 }
 
 .planner-modal-scroll {
@@ -990,8 +1003,11 @@ button {
   }
 
   .planner-modal-sheet {
-    inset: 0;
-    border-radius: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    max-height: 86vh;
+    border-radius: 18px 18px 0 0;
   }
 
   .planner-day-modal {
