@@ -80,7 +80,7 @@ export default function App() {
         }}
       >
         <header className="planner-app-bar">
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="planner-app-bar-kicker">SaifuMemo</p>
             <p className="planner-app-bar-title">
               {page === "home" && "今月の家計ポータル"}
@@ -92,7 +92,7 @@ export default function App() {
               {page === "settings" && "設定"}
             </p>
           </div>
-          <button type="button" onClick={() => openAddMenu()} className="planner-header-action" aria-label="記録を追加">
+          <button type="button" onClick={() => openAddMenu()} className="planner-header-action shrink-0" aria-label="記録を追加">
             <Plus size={18} />
             <span>追加</span>
           </button>

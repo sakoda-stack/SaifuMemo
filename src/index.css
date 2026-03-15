@@ -102,6 +102,8 @@ button {
   font-size: 16px;
   font-weight: 700;
   color: var(--planner-text);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .planner-card,
@@ -304,6 +306,10 @@ button {
   gap: 8px;
 }
 
+.planner-pill-grid-compact {
+  gap: 6px;
+}
+
 .planner-pill,
 .planner-inline-pill,
 .planner-badge,
@@ -316,10 +322,11 @@ button {
 }
 
 .planner-pill {
+  min-height: 34px;
   border: 1px solid var(--planner-line);
   background: var(--planner-soft);
   color: var(--planner-text);
-  padding: 8px 12px;
+  padding: 6px 10px;
   font-size: 12px;
 }
 
@@ -378,6 +385,21 @@ button {
   padding: 10px 14px;
   font-size: 14px;
   font-weight: 700;
+}
+
+.planner-pill,
+.planner-inline-pill,
+.planner-bottom-tab,
+.planner-icon-button,
+.planner-link-row,
+.planner-secondary-inline,
+.planner-primary-inline,
+.planner-inline-toggle,
+.planner-choice-option,
+.planner-header-action,
+.planner-primary-button,
+.planner-secondary-button {
+  min-height: 0;
 }
 
 .planner-header-action,
@@ -486,9 +508,9 @@ button {
 .planner-item-editor {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   border-radius: 14px;
-  padding: 12px;
+  padding: 10px 12px;
 }
 
 .planner-list-row-muted {
@@ -628,6 +650,81 @@ button {
   gap: 8px;
 }
 
+.planner-home-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.planner-home-title {
+  margin: 6px 0 0;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  font-size: clamp(22px, 4.6vw, 28px);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.planner-home-caption {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--planner-subtle);
+}
+
+.planner-home-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--planner-line);
+  border-radius: 14px;
+  background: var(--planner-paper);
+  padding: 11px 12px;
+}
+
+.planner-home-summary-value {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--planner-text);
+}
+
+.planner-home-summary-accent .planner-home-summary-value {
+  color: var(--planner-accent);
+}
+
+.planner-home-summary-medical .planner-home-summary-value {
+  color: var(--planner-danger);
+}
+
+.planner-home-summary-side {
+  display: flex;
+  min-width: 88px;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  text-align: right;
+}
+
+.planner-home-summary-meta {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--planner-text);
+}
+
+.planner-home-summary-note {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--planner-subtle);
+}
+
+.planner-note-card-compact {
+  padding: 10px 11px;
+}
+
 .planner-calendar-header {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -735,6 +832,19 @@ button {
 
   .planner-bottom-tab {
     font-size: 10px;
+  }
+
+  .planner-home-top {
+    align-items: center;
+  }
+
+  .planner-home-summary {
+    align-items: flex-start;
+  }
+
+  .planner-home-summary-side {
+    min-width: 78px;
+    padding-top: 2px;
   }
 
   .planner-calendar-tile {

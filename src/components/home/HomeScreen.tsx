@@ -10,7 +10,7 @@ import {
   Store,
 } from "lucide-react";
 import { db } from "@/db/database";
-import { ActionCard, DataBadge, EmptyState, MetricCard, ScreenIntro, SectionHeader } from "@/components/ui/PlannerUI";
+import { ActionCard, DataBadge, EmptyState, SectionHeader } from "@/components/ui/PlannerUI";
 import { buildProductComparisons, buildStoreSummaries } from "@/utils/compare";
 import { addMonths, compactYen, formatMonthYear, formatYen, getMonthRange, sumBy } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
@@ -150,6 +150,7 @@ export default function HomeScreen({
   const topStore = storeSummaries[0];
   const topDeal = productComparisons[0];
   const fixedTemplateMap = new Map(fixedTemplates.map((template) => [template.id, template.name]));
+  const leadingCategory = topCategories[0];
 
   const goMonth = (delta: number) => {
     const next = addMonths(year, month, delta);
@@ -163,12 +164,14 @@ export default function HomeScreen({
 
   return (
     <div className="planner-page">
-      <ScreenIntro
-        kicker="PORTAL"
-        title={formatMonthYear(year, month)}
-        description="今月の支出、医療費、OCR確認、スーパー比較をここから整理できます。"
-        action={
-          <div className="planner-month-switcher">
+      <section className="planner-card">
+        <div className="planner-home-top">
+          <div className="min-w-0 flex-1">
+            <p className="planner-kicker">NOW</p>
+            <h1 className="planner-home-title">{formatMonthYear(year, month)}</h1>
+            <p className="planner-home-caption">対象者を先に選んでから、今月の数字を見る構成にしています。</p>
+          </div>
+          <div className="planner-month-switcher shrink-0">
             <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
               <ChevronLeft size={16} />
             </button>
@@ -182,18 +185,9 @@ export default function HomeScreen({
               <ChevronRight size={16} />
             </button>
           </div>
-        }
-      />
-
-      <section className="planner-card">
-        <SectionHeader kicker="SUMMARY" title="今月サマリー" description="見出し、要約、詳細の順に確認できます。" />
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <MetricCard label="支出合計" value={formatYen(monthTotal)} tone="accent" note={`家計 ${recordCount} 件`} />
-          <MetricCard label="医療費" value={formatYen(medicalTotal)} tone="medical" note={`補填前 / ${medicals.length} 件`} />
-          <MetricCard label="動きのある日" value={`${activeDays}日`} note="記録が入った日数" />
-          <MetricCard label="固定費" value={formatYen(fixedTotal)} note={unconfirmedFixedCount > 0 ? `未確認 ${unconfirmedFixedCount} 件` : "確認済み"} />
         </div>
-        <div className="mt-4 planner-pill-grid">
+
+        <div className="mt-3 planner-pill-grid planner-pill-grid-compact">
           {[{ id: "all", shortName: "全員" }, ...members].map((member) => (
             <button
               key={member.id}
@@ -205,10 +199,39 @@ export default function HomeScreen({
             </button>
           ))}
         </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <HomeSummaryCard
+            label="支出合計"
+            value={formatYen(monthTotal)}
+            tone="accent"
+            sideTop={`${recordCount} 件`}
+            sideBottom={leadingCategory ? `最多 ${leadingCategory.name}` : "記録なし"}
+          />
+          <HomeSummaryCard
+            label="医療費"
+            value={formatYen(medicalTotal)}
+            tone="medical"
+            sideTop={`${medicals.length} 件`}
+            sideBottom={medicals.length > 0 ? "補填前合計" : "未記録"}
+          />
+          <HomeSummaryCard
+            label="動きのある日"
+            value={`${activeDays}日`}
+            sideTop={`OCR待ち ${pendingOcrCount}`}
+            sideBottom={activeDays > 0 ? "入力のある日数" : "まだ動きなし"}
+          />
+          <HomeSummaryCard
+            label="固定費"
+            value={formatYen(fixedTotal)}
+            sideTop={unconfirmedFixedCount > 0 ? `未確認 ${unconfirmedFixedCount}` : "確認済み"}
+            sideBottom={fixedRecords.length > 0 ? `${fixedRecords.length} 件` : "テンプレート待ち"}
+          />
+        </div>
       </section>
 
       <section className="planner-card">
-        <SectionHeader kicker="QUICK ACTION" title="すぐ使う入口" description="親指で押しやすい主要動線だけを前面に出しています。" />
+        <SectionHeader kicker="QUICK ACTION" title="すぐ使う入口" description="主要動線だけを短い説明で並べます。" />
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <ActionCard title="手入力" description="ふだんの支出をすぐ記録" icon={<NotebookPen size={18} />} tone="accent" onClick={() => onOpenExpenseManual()} />
           <ActionCard title="レシート入力" description="OCR 結果を確認して反映" icon={<ScanText size={18} />} tone="accent" onClick={() => onOpenExpenseReceipt()} />
@@ -219,30 +242,57 @@ export default function HomeScreen({
         </div>
       </section>
 
-      <div className="grid gap-3 lg:grid-cols-[1.2fr_0.9fr]">
+      <section className="planner-card">
+        <SectionHeader kicker="RECENT" title="最近の記録" description="直近の流れを短い行で確認できます。" />
+        <div className="mt-4 space-y-3">
+          {recentRecords.length === 0 ? (
+            <EmptyState title="まだ記録がありません" message="今月の記録を追加すると、ここに最近の支出と医療費が並びます。" />
+          ) : (
+            recentRecords.map((record) => {
+              const Icon = resolveIcon(record.icon, "ReceiptText");
+              return (
+                <div key={record.id} className="planner-summary-row">
+                  <div className="planner-summary-icon" style={{ backgroundColor: `${record.color}18`, color: record.color }}>
+                    <Icon size={16} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="truncate text-sm font-semibold">{record.title}</p>
+                      <p className="shrink-0 text-sm font-semibold">{formatYen(record.amount)}</p>
+                    </div>
+                    <p className="truncate text-xs text-[var(--planner-subtle)]">{record.date} / {record.subtitle}</p>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      <div className="grid gap-3 lg:grid-cols-[1.15fr_0.95fr]">
         <section className="planner-card">
-          <SectionHeader kicker="INSIGHT" title="注目情報" description="今月の確認ポイントを先に出します。" />
-          <div className="mt-4 grid gap-3">
-            <div className="planner-note-card">
-              <div className="flex items-start justify-between gap-3">
+          <SectionHeader kicker="INSIGHT" title="補助情報" description="医療費、固定費、OCR確認待ちを短く整理します。" />
+          <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+            <div className="planner-note-card planner-note-card-compact">
+              <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="planner-kicker">今月の医療費</p>
-                  <p className="mt-2 text-xl font-semibold text-[var(--planner-danger)]">{formatYen(medicalTotal)}</p>
+                  <p className="mt-1 text-lg font-semibold text-[var(--planner-danger)]">{formatYen(medicalTotal)}</p>
                 </div>
                 {medicalTotal > 0 ? <DataBadge label={`${medicals.length} 件`} tone="medical" /> : <DataBadge label="未記録" />}
               </div>
-              <p className="mt-2 text-sm text-[var(--planner-subtle)]">家計の支出と分けて、医療費控除に向けた確認をしやすくしています。</p>
+              <p className="mt-2 text-xs text-[var(--planner-subtle)]">支出とは分けて確認できます。</p>
             </div>
 
-            <div className="planner-note-card">
-              <div className="flex items-start justify-between gap-3">
+            <div className="planner-note-card planner-note-card-compact">
+              <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="planner-kicker">固定費</p>
-                  <p className="mt-2 text-xl font-semibold">{formatYen(fixedTotal)}</p>
+                  <p className="mt-1 text-lg font-semibold">{formatYen(fixedTotal)}</p>
                 </div>
                 {unconfirmedFixedCount > 0 ? <DataBadge label={`未確認 ${unconfirmedFixedCount}`} tone="warning" /> : <DataBadge label="確認済み" />}
               </div>
-              <p className="mt-2 text-sm text-[var(--planner-subtle)]">
+              <p className="mt-2 text-xs text-[var(--planner-subtle)]">
                 {fixedRecords
                   .slice(0, 2)
                   .map((record) => fixedTemplateMap.get(record.templateId ?? "") ?? "固定費")
@@ -250,16 +300,16 @@ export default function HomeScreen({
               </p>
             </div>
 
-            <div className="planner-note-card">
-              <div className="flex items-start justify-between gap-3">
+            <div className="planner-note-card planner-note-card-compact">
+              <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="planner-kicker">OCR 未確認</p>
-                  <p className="mt-2 text-xl font-semibold">{pendingOcrCount} 件</p>
+                  <p className="mt-1 text-lg font-semibold">{pendingOcrCount} 件</p>
                 </div>
                 {pendingOcrCount > 0 ? <DataBadge label="チェック推奨" tone="warning" /> : <DataBadge label="0 件" />}
               </div>
-              <p className="mt-2 text-sm text-[var(--planner-subtle)]">レシート画像付きで未チェックの記録数です。一覧画面から確認できます。</p>
-              <button type="button" onClick={onOpenList} className="mt-3 text-sm font-semibold text-[var(--planner-accent)]">
+              <p className="mt-2 text-xs text-[var(--planner-subtle)]">一覧画面からまとめて確認できます。</p>
+              <button type="button" onClick={onOpenList} className="mt-2 text-xs font-semibold text-[var(--planner-accent)]">
                 記録一覧を開く
               </button>
             </div>
@@ -303,62 +353,38 @@ export default function HomeScreen({
         </section>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[1.05fr_1fr]">
-        <section className="planner-card">
-          <SectionHeader kicker="HOUSEHOLD" title="今月の家計" description="カテゴリ別に支出のまとまりを確認します。" />
-          <div className="mt-4 space-y-3">
-            {topCategories.length === 0 ? (
-              <EmptyState title="まだ記録がありません" message="手入力またはレシート入力から、まずは今月の支出を追加してください。" />
-            ) : (
-              topCategories.map((category) => {
-                const Icon = resolveIcon(category.icon, "ReceiptText");
-                const ratio = monthTotal > 0 ? Math.min(100, Math.round((category.total / monthTotal) * 100)) : 0;
-                return (
-                  <div key={category.id} className="planner-summary-row">
-                    <div className="planner-summary-icon" style={{ backgroundColor: `${category.colorHex}18`, color: category.colorHex }}>
-                      <Icon size={16} />
+      <section className="planner-card">
+        <SectionHeader kicker="HOUSEHOLD" title="今月の家計" description="カテゴリ別の支出を横幅を使って短く見せます。" />
+        <div className="mt-4 space-y-3">
+          {topCategories.length === 0 ? (
+            <EmptyState title="まだ記録がありません" message="手入力またはレシート入力から、まずは今月の支出を追加してください。" />
+          ) : (
+            topCategories.map((category) => {
+              const Icon = resolveIcon(category.icon, "ReceiptText");
+              const ratio = monthTotal > 0 ? Math.min(100, Math.round((category.total / monthTotal) * 100)) : 0;
+              return (
+                <div key={category.id} className="planner-summary-row">
+                  <div className="planner-summary-icon" style={{ backgroundColor: `${category.colorHex}18`, color: category.colorHex }}>
+                    <Icon size={16} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="truncate text-sm font-semibold">{category.name}</p>
+                      <p className="text-sm font-semibold">{formatYen(category.total)}</p>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="truncate text-sm font-semibold">{category.name}</p>
-                        <p className="text-sm font-semibold">{formatYen(category.total)}</p>
-                      </div>
-                      <div className="planner-bar mt-2">
+                    <div className="mt-2 flex items-center gap-3">
+                      <div className="planner-bar flex-1">
                         <span className="planner-bar-fill" style={{ width: `${ratio}%`, backgroundColor: category.colorHex }} />
                       </div>
+                      <span className="shrink-0 text-xs text-[var(--planner-subtle)]">{ratio}%</span>
                     </div>
                   </div>
-                );
-              })
-            )}
-          </div>
-        </section>
-
-        <section className="planner-card">
-          <SectionHeader kicker="RECENT" title="最近の記録" description="直近の流れを時系列で確認できます。" />
-          <div className="mt-4 space-y-3">
-            {recentRecords.length === 0 ? (
-              <EmptyState title="まだ記録がありません" message="今月の記録を追加すると、ここに最近の支出と医療費が並びます。" />
-            ) : (
-              recentRecords.map((record) => {
-                const Icon = resolveIcon(record.icon, "ReceiptText");
-                return (
-                  <div key={record.id} className="planner-summary-row">
-                    <div className="planner-summary-icon" style={{ backgroundColor: `${record.color}18`, color: record.color }}>
-                      <Icon size={16} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">{record.title}</p>
-                      <p className="truncate text-xs text-[var(--planner-subtle)]">{record.date} / {record.subtitle}</p>
-                    </div>
-                    <p className="text-sm font-semibold">{formatYen(record.amount)}</p>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </section>
-      </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
 
       <section className="planner-card">
         <SectionHeader kicker="SHORTCUT" title="入力導線" description="日付から入るか、入力方式から入るかを選べます。" />
@@ -370,5 +396,32 @@ export default function HomeScreen({
         </div>
       </section>
     </div>
+  );
+}
+
+function HomeSummaryCard({
+  label,
+  value,
+  sideTop,
+  sideBottom,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  sideTop: string;
+  sideBottom: string;
+  tone?: "default" | "accent" | "medical";
+}) {
+  return (
+    <article className={`planner-home-summary planner-home-summary-${tone}`}>
+      <div className="min-w-0 flex-1">
+        <p className="planner-kicker">{label}</p>
+        <p className="planner-home-summary-value">{value}</p>
+      </div>
+      <div className="planner-home-summary-side">
+        <span className="planner-home-summary-meta">{sideTop}</span>
+        <span className="planner-home-summary-note">{sideBottom}</span>
+      </div>
+    </article>
   );
 }
