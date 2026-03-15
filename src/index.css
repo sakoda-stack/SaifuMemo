@@ -956,6 +956,96 @@ button {
   gap: 10px;
 }
 
+.planner-breakdown {
+  display: grid;
+  grid-template-columns: minmax(0, 170px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.planner-breakdown-chart {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  margin: 0 auto;
+}
+
+.planner-breakdown-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.planner-breakdown-segment {
+  cursor: pointer;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.planner-breakdown-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 20px;
+  text-align: center;
+}
+
+.planner-breakdown-center-label,
+.planner-breakdown-center-note,
+.planner-breakdown-legend-bottom {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--planner-subtle);
+}
+
+.planner-breakdown-center-value {
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--planner-text);
+}
+
+.planner-breakdown-legend {
+  display: grid;
+  gap: 8px;
+}
+
+.planner-breakdown-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid var(--planner-line);
+  border-radius: 12px;
+  background: var(--planner-soft);
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.planner-breakdown-legend-item-active {
+  border-color: rgba(72, 108, 165, 0.3);
+  background: rgba(72, 108, 165, 0.08);
+}
+
+.planner-breakdown-legend-swatch {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+
+.planner-breakdown-legend-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--planner-text);
+}
+
 @media (max-width: 640px) {
   .planner-page {
     padding: 12px;
@@ -1016,5 +1106,14 @@ button {
     left: 0;
     max-height: 78vh;
     border-radius: 18px 18px 0 0;
+  }
+
+  .planner-breakdown {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .planner-breakdown-chart {
+    width: 152px;
+    height: 152px;
   }
 }
