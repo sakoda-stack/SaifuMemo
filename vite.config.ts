@@ -2,13 +2,19 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
+const repositoryName = process.env.GITHUB_REPOSITORY?.split("/")[1];
+const base = process.env.GITHUB_ACTIONS === "true" && repositoryName
+  ? `/${repositoryName}/`
+  : "/";
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     VitePWA({
       // "autoUpdate" = アプリを開くたびに自動で最新版に更新
       registerType: "autoUpdate",
-      includeAssets: ["favicon.ico", "apple-touch-icon.png", "icons/*.png"],
+      includeAssets: ["saifu.png", "favicon.png", "apple-touch-icon.png", "icons/*.png"],
       manifest: {
         name: "さいふメモ",
         short_name: "さいふメモ",
@@ -17,7 +23,8 @@ export default defineConfig({
         background_color: "#F7F6F2",
         display: "standalone",          // ← ブラウザのUIを隠してアプリっぽく見せる
         orientation: "portrait",
-        start_url: "/",
+        start_url: base,
+        scope: base,
         icons: [
           { src: "icons/icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "icons/icon-512.png", sizes: "512x512", type: "image/png" },

@@ -42,6 +42,7 @@ export interface Expense {
   memberId?: string;
   categoryId?: string;
   shopId?: string;
+  shopName?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -58,6 +59,7 @@ export interface MedicalExpense {
   receiptImageData?: string;
   memberId?: string;
   hospitalId?: string;
+  hospitalName?: string;
   createdAt: Date;
 }
 
