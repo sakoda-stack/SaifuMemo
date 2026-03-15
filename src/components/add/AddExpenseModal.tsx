@@ -4,7 +4,7 @@ import { v4 as uuid } from "uuid";
 import { db, replaceReceiptItemObservations } from "@/db/database";
 import { todayString, fileToBase64 } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
-import { downloadDataUrl, recognizeExpenseReceipt, toObservationPayload, type ExpenseOcrDraft } from "@/utils/ocr";
+import { downloadDataUrl, recognizeExpenseReceipt, toObservationPayload, type ExpenseOcrDraft, type OcrEngine } from "@/utils/ocr";
 import type { Category, Member, ShopMaster } from "@/types";
 
 interface Props {
@@ -28,6 +28,7 @@ export default function AddExpenseModal({ initialDate, onClose, onSaved }: Props
   const [ocrDraft, setOcrDraft] = useState<ExpenseOcrDraft | null>(null);
   const [ocrText, setOcrText] = useState("");
   const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
+  const [ocrEngine, setOcrEngine] = useState<OcrEngine | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState("");
   const [newShop, setNewShop] = useState("");
@@ -75,6 +76,7 @@ export default function AddExpenseModal({ initialDate, onClose, onSaved }: Props
       setOcrDraft(result.draft);
       setOcrText(result.text);
       setOcrConfidence(result.confidence);
+      setOcrEngine(result.engine);
     } catch (error) {
       setOcrError(error instanceof Error ? error.message : "OCR に失敗しました");
     } finally {
@@ -209,7 +211,13 @@ export default function AddExpenseModal({ initialDate, onClose, onSaved }: Props
                   <div>
                     <label className="planner-label mb-1">OCR 読み取り結果</label>
                     <p className="text-xs text-[var(--planner-subtle)]">
-                      {ocrLoading ? "読み取り中..." : ocrConfidence !== null ? `信頼度 ${Math.round(ocrConfidence)}%` : "画像のみ保持中"}
+                      {ocrLoading
+                        ? "読み取り中..."
+                        : ocrEngine === "gemini"
+                          ? "Gemini OCR"
+                          : ocrConfidence !== null
+                            ? `信頼度 ${Math.round(ocrConfidence)}%`
+                            : "画像のみ保持中"}
                     </p>
                   </div>
                   <div className="flex gap-2">

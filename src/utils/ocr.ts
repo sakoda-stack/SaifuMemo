@@ -1,4 +1,5 @@
 import type { MedicalType } from "@/types";
+import { MEDICAL_TYPES } from "@/types";
 
 export interface ExpenseOcrDraft {
   amount?: number;
@@ -15,10 +16,13 @@ export interface MedicalOcrDraft {
   medicalType?: MedicalType;
 }
 
+export type OcrEngine = "gemini" | "tesseract";
+
 export interface OcrScanResult<TDraft> {
-  confidence: number;
+  confidence: number | null;
   draft: TDraft;
   text: string;
+  engine: OcrEngine;
 }
 
 export interface OcrReceiptItem {
@@ -31,6 +35,38 @@ export interface OcrReceiptItem {
   sourceText: string;
 }
 
+interface GeminiExpenseDraft {
+  amount?: number | null;
+  date?: string | null;
+  shopName?: string | null;
+  memo?: string | null;
+  items?: Array<{
+    itemName?: string | null;
+    quantity?: number | null;
+    quantityUnit?: string | null;
+    totalPrice?: number | null;
+  }>;
+}
+
+interface GeminiMedicalDraft {
+  amount?: number | null;
+  date?: string | null;
+  hospitalName?: string | null;
+  medicalTypeHint?: string | null;
+}
+
+type GeminiExpenseItem = NonNullable<GeminiExpenseDraft["items"]>[number];
+
+interface GeminiGenerateContentResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+}
+
 type TesseractModule = typeof import("tesseract.js");
 type TesseractWorker = Awaited<ReturnType<TesseractModule["createWorker"]>>;
 
@@ -41,36 +77,78 @@ const OCR_CORE_BASE = `https://cdn.jsdelivr.net/npm/tesseract.js-core@v${OCR_VER
 const OCR_LANG_BASE = "https://tessdata.projectnaptha.com/4.0.0";
 const OCR_MAX_EDGE = 2200;
 const OCR_MIN_EDGE = 1400;
+const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const TRANSPORTATION_MEDICAL_TYPE = "騾夐劼莠､騾夊ｲｻ" as MedicalType;
 
-const TOTAL_LABEL_PATTERN = /(合計|総計|現計|小計|お預り|お釣り|税込|税抜|クレジット|電子マネー|ポイント|値引|割引|TEL|電話)/i;
-const RECEIPT_SKIP_PATTERN = /(領収|レシート|ありがとうございました|承認|取引|伝票|No\.?|番号|内訳|担当|担当者)/i;
-const DATE_LINE_PATTERN = /(20\d{2}|\d{2})[\/.\-年]\s*\d{1,2}[\/.\-月]\s*\d{1,2}(?:日)?|\d{1,2}:\d{2}/;
-const QUANTITY_PATTERN = /(\d+(?:\.\d+)?)\s?(kg|g|ml|mL|l|L|個|本|枚|袋|パック|P|p|缶|玉|箱)/;
+const TOTAL_LABEL_PATTERN =
+  /(合計|総合計|支払額|お買上額|請求額|料金|total|amount|蜷郁ｨ|邱剰ｨ|迴ｾ險|蟆剰ｨ|縺企|遞手ｾｼ|髮ｻ隧ｱ)/i;
+const RECEIPT_SKIP_PATTERN =
+  /(レシート|ありがとうございました|領収書|登録番号|電話|tel|税込|税抜|内税|外税|No\.?|No:|逡ｪ蜿ｷ|蜀・ｨｳ)/i;
+const DATE_LINE_PATTERN =
+  /(20\d{2}|\d{2})[\/.\-年]\s*\d{1,2}[\/.\-月]\s*\d{1,2}(?:日)?|\d{1,2}:\d{2}/;
+const QUANTITY_PATTERN =
+  /(\d+(?:\.\d+)?)\s?(kg|g|ml|mL|l|L|本|袋|パック|P|p|個|枚|蛟弓譛ｬ|譫嘶陲弓繝代ャ繧ｯ|郛ｶ|邇榎邂ｱ)/i;
 
 let workerPromise: Promise<TesseractWorker> | null = null;
 let workerQueue: Promise<unknown> = Promise.resolve();
 
 export async function recognizeExpenseReceipt(imageData: string): Promise<OcrScanResult<ExpenseOcrDraft>> {
-  const { text, confidence } = await runOcr(imageData);
-  return {
-    confidence,
-    text,
-    draft: parseExpenseOcrText(text),
-  };
+  const preparedImage = await prepareImageForOcr(imageData);
+  const errors: string[] = [];
+
+  try {
+    return await runGeminiExpenseOcr(preparedImage);
+  } catch (error) {
+    errors.push(`Gemini: ${toErrorMessage(error)}`);
+  }
+
+  try {
+    const { text, confidence } = await runTesseractOcr(preparedImage);
+    return {
+      confidence,
+      draft: parseExpenseOcrText(text),
+      text,
+      engine: "tesseract",
+    };
+  } catch (error) {
+    errors.push(`Tesseract: ${toErrorMessage(error)}`);
+  }
+
+  throw new Error(`OCR failed. ${errors.join(" / ")}`);
 }
 
 export async function recognizeMedicalReceipt(imageData: string): Promise<OcrScanResult<MedicalOcrDraft>> {
-  const { text, confidence } = await runOcr(imageData);
-  return {
-    confidence,
-    text,
-    draft: parseMedicalOcrText(text),
-  };
+  const preparedImage = await prepareImageForOcr(imageData);
+  const errors: string[] = [];
+
+  try {
+    return await runGeminiMedicalOcr(preparedImage);
+  } catch (error) {
+    errors.push(`Gemini: ${toErrorMessage(error)}`);
+  }
+
+  try {
+    const { text, confidence } = await runTesseractOcr(preparedImage);
+    return {
+      confidence,
+      draft: parseMedicalOcrText(text),
+      text,
+      engine: "tesseract",
+    };
+  } catch (error) {
+    errors.push(`Tesseract: ${toErrorMessage(error)}`);
+  }
+
+  throw new Error(`OCR failed. ${errors.join(" / ")}`);
 }
 
 export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
   const cleaned = normalizeOcrText(text);
-  const lines = cleaned.split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = cleaned
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
   const amount = extractAmount(lines);
   const date = extractDate(cleaned);
   const shopName = extractMerchantName(lines);
@@ -80,13 +158,16 @@ export function parseExpenseOcrText(text: string): ExpenseOcrDraft {
     date,
     items: extractReceiptItems(lines),
     shopName,
-    memo: shopName ? `${shopName}のレシートをOCRで読み取り` : undefined,
+    memo: shopName ? `${shopName} OCR` : undefined,
   };
 }
 
 export function parseMedicalOcrText(text: string): MedicalOcrDraft {
   const cleaned = normalizeOcrText(text);
-  const lines = cleaned.split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = cleaned
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
   const amount = extractAmount(lines);
   const date = extractDate(cleaned);
   const hospitalName = extractMedicalFacility(lines);
@@ -126,22 +207,153 @@ export function downloadDataUrl(dataUrl: string, filename: string) {
   anchor.click();
 }
 
-async function runOcr(imageData: string) {
-  const preparedImage = await prepareImageForOcr(imageData);
+async function runGeminiExpenseOcr(imageData: string): Promise<OcrScanResult<ExpenseOcrDraft>> {
+  const parsed = await runGeminiJson<GeminiExpenseDraft>(
+    imageData,
+    [
+      "Read this Japanese shopping receipt image.",
+      "Return JSON only.",
+      "Schema:",
+      "{",
+      '  "amount": number | null,',
+      '  "date": "YYYY-MM-DD" | null,',
+      '  "shopName": string | null,',
+      '  "memo": string | null,',
+      '  "items": [{ "itemName": string, "quantity": number | null, "quantityUnit": string | null, "totalPrice": number | null }]',
+      "}",
+      "Rules:",
+      "- amount is the grand total paid on the receipt.",
+      "- date must be normalized to YYYY-MM-DD when possible.",
+      "- items must include only purchased product lines, not totals, taxes, points, discounts, phone numbers, addresses, or store metadata.",
+      "- totalPrice must be an integer yen amount for that line.",
+      "- quantity and quantityUnit are optional. Infer from labels like 1000ml, 2個, 1kg, 3本.",
+      "- If uncertain, use null instead of guessing.",
+    ].join("\n"),
+  );
 
+  const items = (parsed.items ?? [])
+    .map((item) => toReceiptItem(item))
+    .filter(isDefined);
+
+  const draft: ExpenseOcrDraft = {
+    amount: toPositiveNumber(parsed.amount),
+    date: normalizeGeminiDate(parsed.date),
+    shopName: cleanOptionalText(parsed.shopName),
+    memo: cleanOptionalText(parsed.memo) ?? undefined,
+    items,
+  };
+
+  if (!draft.memo && draft.shopName) {
+    draft.memo = `${draft.shopName} OCR`;
+  }
+
+  return {
+    confidence: null,
+    draft,
+    text: JSON.stringify(parsed, null, 2),
+    engine: "gemini",
+  };
+}
+
+async function runGeminiMedicalOcr(imageData: string): Promise<OcrScanResult<MedicalOcrDraft>> {
+  const parsed = await runGeminiJson<GeminiMedicalDraft>(
+    imageData,
+    [
+      "Read this Japanese medical receipt or pharmacy receipt image.",
+      "Return JSON only.",
+      "Schema:",
+      "{",
+      '  "amount": number | null,',
+      '  "date": "YYYY-MM-DD" | null,',
+      '  "hospitalName": string | null,',
+      '  "medicalTypeHint": "consultation" | "medicine" | "nursing" | "therapy" | "transportation" | null',
+      "}",
+      "Rules:",
+      "- amount is the total paid by the user.",
+      "- date must be normalized to YYYY-MM-DD when possible.",
+      "- hospitalName should be the clinic, hospital, or pharmacy name.",
+      "- consultation means general treatment/doctor visit.",
+      "- medicine means pharmacy / prescription cost.",
+      "- nursing means nursing care service.",
+      "- therapy means massage, rehab, or similar.",
+      "- transportation means transit cost related to treatment.",
+      "- If uncertain, use null instead of guessing.",
+    ].join("\n"),
+  );
+
+  return {
+    confidence: null,
+    draft: {
+      amount: toPositiveNumber(parsed.amount),
+      date: normalizeGeminiDate(parsed.date),
+      hospitalName: cleanOptionalText(parsed.hospitalName),
+      medicalType: mapGeminiMedicalType(parsed.medicalTypeHint),
+    },
+    text: JSON.stringify(parsed, null, 2),
+    engine: "gemini",
+  };
+}
+
+async function runGeminiJson<T>(imageData: string, prompt: string): Promise<T> {
+  const apiKey = globalThis.__APP_GEMINI_API_KEY__?.trim();
+  if (!apiKey) {
+    throw new Error("Gemini API key is not configured");
+  }
+
+  const { mimeType, data } = splitDataUrl(imageData);
+  const response = await fetch(GEMINI_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType,
+                data,
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0,
+        responseMimeType: "application/json",
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text().catch(() => response.statusText);
+    throw new Error(`Gemini request failed (${response.status}): ${message}`);
+  }
+
+  const payload = (await response.json()) as GeminiGenerateContentResponse;
+  const text = payload.candidates?.[0]?.content?.parts?.find((part) => typeof part.text === "string")?.text;
+  if (!text) {
+    throw new Error("Gemini response did not contain JSON text");
+  }
+
+  return JSON.parse(stripCodeFence(text)) as T;
+}
+
+async function runTesseractOcr(imageData: string) {
   try {
     const worker = await getWorker();
-    const result = await enqueueOcrJob(async () => worker.recognize(preparedImage, { rotateAuto: true }));
+    const result = await enqueueOcrJob(async () => worker.recognize(imageData, { rotateAuto: true }));
 
     return {
       text: normalizeOcrText(result.data.text),
       confidence: result.data.confidence ?? 0,
     };
   } catch (workerError) {
-    const fallback = await runDirectRecognize(preparedImage).catch((fallbackError) => {
-      const workerMessage = workerError instanceof Error ? workerError.message : "worker initialization failed";
-      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : "fallback recognize failed";
-      throw new Error(`OCR failed: ${workerMessage}; fallback failed: ${fallbackMessage}`);
+    const fallback = await runDirectRecognize(imageData).catch((fallbackError) => {
+      throw new Error(`${toErrorMessage(workerError)}; fallback failed: ${toErrorMessage(fallbackError)}`);
     });
 
     return fallback;
@@ -248,10 +460,10 @@ function normalizeOcrText(text: string) {
 function extractAmount(lines: string[]) {
   const labeled = lines
     .flatMap((line) => {
-      const normalized = line.replace(/[¥,]/g, "");
-      return Array.from(normalized.matchAll(/(?:合計|総計|現計|税込|お預り|お会計)\s*([0-9]{2,7})/g)).map((match) => ({
+      const normalized = line.replace(/[¥￥,，．｡]/g, "");
+      return Array.from(normalized.matchAll(/(?:合計|総合計|支払額|お買上額|請求額|料金|蜷郁ｨ|邱剰ｨ|迴ｾ險|遞手ｾｼ|縺企)[^\d]{0,6}([0-9]{2,7})/g)).map((match) => ({
         amount: parseInt(match[1], 10),
-        priority: /(合計|総計|現計|お会計)/.test(line) ? 100 : 20,
+        priority: TOTAL_LABEL_PATTERN.test(line) ? 100 : 20,
       }));
     })
     .filter((candidate) => Number.isFinite(candidate.amount) && candidate.amount > 0);
@@ -261,7 +473,7 @@ function extractAmount(lines: string[]) {
   }
 
   const fallback = lines
-    .flatMap((line) => Array.from(line.replace(/[¥,]/g, "").matchAll(/([0-9]{2,7})/g)))
+    .flatMap((line) => Array.from(line.replace(/[¥￥,，．｡]/g, "").matchAll(/([0-9]{2,7})/g)))
     .map((match) => parseInt(match[1], 10))
     .filter((amount) => Number.isFinite(amount) && amount >= 100);
 
@@ -270,7 +482,7 @@ function extractAmount(lines: string[]) {
 
 function extractDate(text: string) {
   const ymd =
-    text.match(/(20\d{2})[\/.\-年 ]\s*(\d{1,2})[\/.\-月]\s*(\d{1,2})(?:日)?/) ??
+    text.match(/(20\d{2})[\/.\-年 ]\s*(\d{1,2})[\/.\-月 ]\s*(\d{1,2})(?:日)?/) ??
     text.match(/(\d{2})[\/.\-](\d{1,2})[\/.\-](\d{1,2})/);
 
   if (!ymd) {
@@ -278,8 +490,7 @@ function extractDate(text: string) {
   }
 
   if (ymd[1].length === 2) {
-    const year = 2000 + parseInt(ymd[1], 10);
-    return toDateString(year, parseInt(ymd[2], 10), parseInt(ymd[3], 10));
+    return toDateString(2000 + parseInt(ymd[1], 10), parseInt(ymd[2], 10), parseInt(ymd[3], 10));
   }
 
   return toDateString(parseInt(ymd[1], 10), parseInt(ymd[2], 10), parseInt(ymd[3], 10));
@@ -292,11 +503,11 @@ function extractMerchantName(lines: string[]) {
       !TOTAL_LABEL_PATTERN.test(line) &&
       !RECEIPT_SKIP_PATTERN.test(line) &&
       line.length >= 2 &&
-      line.length <= 28,
+      line.length <= 32,
   );
 }
 
-function extractReceiptItems(lines: string[]): OcrReceiptItem[] {
+function extractReceiptItems(lines: string[]) {
   return lines
     .map((line) => parseReceiptItemLine(line))
     .filter((item): item is OcrReceiptItem => Boolean(item))
@@ -308,8 +519,8 @@ function parseReceiptItemLine(line: string): OcrReceiptItem | null {
     return null;
   }
 
-  const normalized = line.replace(/[¥,]/g, " ").replace(/\s+/g, " ").trim();
-  const match = normalized.match(/^(.*?)(\d{2,5})\s*(?:円)?\s*$/);
+  const normalized = line.replace(/[¥￥,，]/g, " ").replace(/\s+/g, " ").trim();
+  const match = normalized.match(/^(.*?)(\d{2,6})\s*$/);
   if (!match) {
     return null;
   }
@@ -348,11 +559,16 @@ function extractQuantity(itemName: string) {
   }
 
   const rawQuantity = parseFloat(match[1]);
-  const unit = normalizeUnit(match[2]);
+  if (!Number.isFinite(rawQuantity) || rawQuantity <= 0) {
+    return undefined;
+  }
+
+  const rawUnit = match[2];
+  const unit = normalizeUnit(rawUnit);
   const quantity =
-    unit === "g" && match[2].toLowerCase() === "kg"
+    unit === "g" && /^kg$/i.test(rawUnit)
       ? rawQuantity * 1000
-      : unit === "ml" && /^(l|L)$/.test(match[2])
+      : unit === "ml" && /^l$/i.test(rawUnit)
         ? rawQuantity * 1000
         : rawQuantity;
 
@@ -363,6 +579,7 @@ function normalizeUnit(unit: string) {
   const lower = unit.toLowerCase();
   if (lower === "kg") return "g";
   if (lower === "l") return "ml";
+  if (lower === "ml") return "ml";
   if (lower === "p") return "パック";
   if (unit === "mL") return "ml";
   return unit;
@@ -379,22 +596,25 @@ function normalizeItemName(itemName: string) {
 
 function extractMedicalFacility(lines: string[]) {
   return (
-    lines.find((line) => /(病院|医院|クリニック|歯科|薬局|診療所)/.test(line) && line.length <= 32) ??
+    lines.find((line) => /(医院|病院|クリニック|薬局|歯科|逞・劼|蛹ｻ髯｢|豁ｯ遘掃阮ｬ螻|險ｺ逋よ園)/.test(line) && line.length <= 40) ??
     extractMerchantName(lines)
   );
 }
 
 function inferMedicalType(text: string): MedicalType {
-  if (/薬局|調剤/.test(text)) {
-    return "医薬品購入";
+  if (/電車|バス|タクシー|transport|騾夐劼|莠､騾夊ｲｻ/.test(text)) {
+    return TRANSPORTATION_MEDICAL_TYPE;
   }
-  if (/介護/.test(text)) {
-    return "介護保険サービス";
+  if (/薬局|調剤|処方|pharmacy|medicine|阮ｬ螻|隱ｿ蜑､/.test(text)) {
+    return MEDICAL_TYPES[1];
   }
-  if (/整体|マッサージ|コンタクト/.test(text)) {
-    return "その他の医療費";
+  if (/介護|nursing|莉玖ｭｷ/.test(text)) {
+    return MEDICAL_TYPES[2];
   }
-  return "診療・治療";
+  if (/あんま|マッサージ|リハビリ|整体|therapy|謨ｴ菴|繝槭ャ繧ｵ|繧ｳ繝ｳ繧ｿ繧ｯ/.test(text)) {
+    return MEDICAL_TYPES[3];
+  }
+  return MEDICAL_TYPES[0];
 }
 
 function isMostlyNumeric(value: string) {
@@ -409,4 +629,95 @@ function isMostlyNumeric(value: string) {
 
 function toDateString(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function splitDataUrl(dataUrl: string) {
+  const match = dataUrl.match(/^data:(.*?);base64,(.*)$/);
+  if (!match) {
+    throw new Error("invalid image data");
+  }
+
+  return {
+    mimeType: match[1] || "image/jpeg",
+    data: match[2],
+  };
+}
+
+function stripCodeFence(text: string) {
+  return text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/, "").trim();
+}
+
+function toPositiveNumber(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : undefined;
+}
+
+function cleanOptionalText(value: string | null | undefined) {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : undefined;
+}
+
+function normalizeGeminiDate(value: string | null | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return extractDate(value);
+  }
+
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function toReceiptItem(item: GeminiExpenseItem): OcrReceiptItem | null {
+  const itemName = cleanOptionalText(item?.itemName);
+  const totalPrice = toPositiveNumber(item?.totalPrice);
+  if (!itemName || !totalPrice) {
+    return null;
+  }
+
+  const normalizedItemName = normalizeItemName(itemName);
+  if (!normalizedItemName) {
+    return null;
+  }
+
+  const quantity = typeof item?.quantity === "number" && Number.isFinite(item.quantity) && item.quantity > 0
+    ? item.quantity
+    : undefined;
+  const quantityUnit = cleanOptionalText(item?.quantityUnit);
+
+  return {
+    itemName,
+    normalizedItemName,
+    quantity,
+    quantityUnit,
+    totalPrice,
+    unitPrice: quantity ? Math.round((totalPrice / quantity) * 100) / 100 : undefined,
+    sourceText: `${itemName} ${totalPrice}`,
+  };
+}
+
+function isDefined<T>(value: T | null | undefined): value is T {
+  return value != null;
+}
+
+function mapGeminiMedicalType(value: string | null | undefined): MedicalType | undefined {
+  switch (value?.trim().toLowerCase()) {
+    case "consultation":
+      return MEDICAL_TYPES[0];
+    case "medicine":
+      return MEDICAL_TYPES[1];
+    case "nursing":
+      return MEDICAL_TYPES[2];
+    case "therapy":
+      return MEDICAL_TYPES[3];
+    case "transportation":
+      return TRANSPORTATION_MEDICAL_TYPE;
+    default:
+      return undefined;
+  }
+}
+
+function toErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
