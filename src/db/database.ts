@@ -229,3 +229,10 @@ export async function replaceReceiptItemObservations(
     );
   });
 }
+
+export async function deleteExpenseCascade(expenseId: string) {
+  await db.transaction("rw", db.expenses, db.receiptItemObservations, async () => {
+    await db.receiptItemObservations.where("expenseId").equals(expenseId).delete();
+    await db.expenses.delete(expenseId);
+  });
+}

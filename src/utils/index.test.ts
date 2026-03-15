@@ -1,6 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { generateMedicalCSV } from "@/utils";
+import { addMonths, formatDateDisplay, generateMedicalCSV, parseDateString, toDateString, todayString } from "@/utils";
 import type { MedicalExpense } from "@/types";
+
+describe("date helpers", () => {
+  it("formats local dates without UTC day shift", () => {
+    const date = new Date(2026, 2, 1, 0, 30, 0);
+
+    expect(todayString(date)).toBe("2026-03-01");
+    expect(toDateString(date)).toBe("2026-03-01");
+    expect(formatDateDisplay("2026-03-01")).toBe("3月1日 (日)");
+  });
+
+  it("parses date strings and moves month boundaries safely", () => {
+    const parsed = parseDateString("2026-01-31");
+
+    expect(parsed.getFullYear()).toBe(2026);
+    expect(parsed.getMonth()).toBe(0);
+    expect(parsed.getDate()).toBe(31);
+    expect(addMonths(2026, 1, -1)).toEqual({ year: 2025, month: 12 });
+    expect(addMonths(2026, 12, 1)).toEqual({ year: 2027, month: 1 });
+  });
+});
 
 describe("generateMedicalCSV", () => {
   it("adds BOM, headers, properly quoted values, and totals", () => {

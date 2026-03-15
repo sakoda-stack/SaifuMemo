@@ -1,19 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, HeartPulse } from "lucide-react";
+import { ChevronLeft, ChevronRight, HeartPulse, NotebookPen, ScanText } from "lucide-react";
 import { db } from "@/db/database";
-import { addMonths, formatMonthYear, formatYen, getMonthRange } from "@/utils";
+import { DataBadge, EmptyState, MetricCard, ScreenIntro, SectionHeader } from "@/components/ui/PlannerUI";
+import { addMonths, compactYen, formatDateDisplay, formatMonthYear, formatYen, getMonthRange, toDateString } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
-import type { Category, MedicalExpense } from "@/types";
+
+interface CalendarScreenProps {
+  onAddExpense: (date?: string) => void;
+  onAddMedical: (date?: string) => void;
+  onAddExpenseReceipt: (date?: string) => void;
+  onAddMedicalReceipt: (date?: string) => void;
+}
 
 interface CalendarEntry {
   id: string;
+  type: "expense" | "medical";
   date: string;
   amount: number;
   title: string;
   subtitle: string;
   icon: string;
   color: string;
-  type: "expense" | "medical";
 }
 
 interface DaySummary {
@@ -22,64 +29,63 @@ interface DaySummary {
   entries: CalendarEntry[];
 }
 
-interface CalendarScreenProps {
-  onAddExpense: (date?: string) => void;
-  onAddMedical: (date?: string) => void;
-}
-
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"] as const;
 
-export default function CalendarScreen({ onAddExpense, onAddMedical }: CalendarScreenProps) {
+export default function CalendarScreen({
+  onAddExpense,
+  onAddMedical,
+  onAddExpenseReceipt,
+  onAddMedicalReceipt,
+}: CalendarScreenProps) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [summaries, setSummaries] = useState<Record<string, DaySummary>>({});
-  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedDate, setSelectedDate] = useState(toDateString(today));
 
   useEffect(() => {
     const load = async () => {
       const { start, end } = getMonthRange(year, month);
-      const [categoryRows, expenseRows, medicalRows] = await Promise.all([
-        db.categories.orderBy("sortOrder").toArray().then((rows) => rows.filter((category) => category.isActive)),
+      const [categories, expenses, medicals] = await Promise.all([
+        db.categories.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
         db.expenses.where("date").between(start, end, true, false).toArray(),
         db.medicalExpenses.where("paymentDate").between(start, end, true, false).toArray(),
       ]);
 
-      const categoryMap = new Map(categoryRows.map((category) => [category.id, category]));
+      const categoryMap = new Map(categories.map((category) => [category.id, category]));
       const nextSummaries: Record<string, DaySummary> = {};
 
-      const pushEntry = (entry: CalendarEntry) => {
-        if (!nextSummaries[entry.date]) {
-          nextSummaries[entry.date] = { date: entry.date, total: 0, entries: [] };
-        }
-        nextSummaries[entry.date].entries.push(entry);
-        nextSummaries[entry.date].total += entry.amount;
+      const appendEntry = (entry: CalendarEntry) => {
+        const current = nextSummaries[entry.date] ?? { date: entry.date, total: 0, entries: [] };
+        current.entries.push(entry);
+        current.total += entry.amount;
+        nextSummaries[entry.date] = current;
       };
 
-      expenseRows.forEach((expense) => {
+      expenses.forEach((expense) => {
         const category = categoryMap.get(expense.categoryId ?? "");
-        pushEntry({
+        appendEntry({
           id: expense.id,
+          type: "expense",
           date: expense.date,
           amount: expense.amount,
-          title: expense.shopName || expense.memo || category?.name || "支出",
+          title: expense.shopName || expense.memo || "支出",
           subtitle: category?.name || "カテゴリ未設定",
           icon: category?.icon || "ReceiptText",
-          color: category?.colorHex || "#7A7A7A",
-          type: "expense",
+          color: category?.colorHex || "#7b7267",
         });
       });
 
-      medicalRows.forEach((medical) => {
-        pushEntry({
+      medicals.forEach((medical) => {
+        appendEntry({
           id: medical.id,
+          type: "medical",
           date: medical.paymentDate,
           amount: medical.amount,
           title: medical.hospitalName || "医療費",
           subtitle: medical.isTransportation ? "通院交通費" : medical.medicalType,
           icon: "HeartPulse",
-          color: "#D46A6A",
-          type: "medical",
+          color: "#b84e41",
         });
       });
 
@@ -88,29 +94,23 @@ export default function CalendarScreen({ onAddExpense, onAddMedical }: CalendarS
       });
 
       setSummaries(nextSummaries);
-
-      const firstSelectableDate =
-        today.getFullYear() === year && today.getMonth() + 1 === month
-          ? toDateString(today)
-          : Object.keys(nextSummaries).sort()[0] || `${year}-${String(month).padStart(2, "0")}-01`;
-
       setSelectedDate((current) => {
-        if (current && current.startsWith(`${year}-${String(month).padStart(2, "0")}`)) {
+        if (current.startsWith(`${year}-${String(month).padStart(2, "0")}`)) {
           return current;
         }
 
-        return firstSelectableDate;
+        return Object.keys(nextSummaries).sort()[0] ?? `${year}-${String(month).padStart(2, "0")}-01`;
       });
     };
 
-    load();
+    void load();
   }, [month, year]);
 
-  const monthEntries = useMemo(() => Object.values(summaries).flatMap((summary) => summary.entries), [summaries]);
-  const monthTotal = monthEntries.reduce((sum, entry) => sum + entry.amount, 0);
-  const activeDays = Object.keys(summaries).length;
+  const calendarCells = useMemo(() => buildCalendarCells(year, month), [month, year]);
   const selectedSummary = summaries[selectedDate];
-  const cells = useMemo(() => buildCalendarCells(year, month), [month, year]);
+  const monthEntries = Object.values(summaries).flatMap((summary) => summary.entries);
+  const activeDays = Object.keys(summaries).length;
+  const monthTotal = monthEntries.reduce((total, entry) => total + entry.amount, 0);
 
   const goMonth = (delta: number) => {
     const next = addMonths(year, month, delta);
@@ -124,160 +124,132 @@ export default function CalendarScreen({ onAddExpense, onAddMedical }: CalendarS
 
   return (
     <div className="planner-page">
-      <div className="planner-monthbar">
-        <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
-          <ChevronLeft size={20} />
-        </button>
-        <div className="text-center">
-          <p className="planner-kicker">家計カレンダー</p>
-          <h2 className="planner-heading">{formatMonthYear(year, month)}</h2>
-        </div>
-        <button
-          type="button"
-          onClick={() => goMonth(1)}
-          className="planner-icon-button"
-          disabled={year === today.getFullYear() && month === today.getMonth() + 1}
-          aria-label="次の月"
-        >
-          <ChevronRight size={20} />
-        </button>
+      <ScreenIntro
+        kicker="CALENDAR"
+        title={formatMonthYear(year, month)}
+        description="日付をタップすると、その日の確認と追加がそのままつながります。"
+        action={
+          <div className="planner-month-switcher">
+            <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => goMonth(1)}
+              className="planner-icon-button"
+              aria-label="次の月"
+              disabled={year === today.getFullYear() && month === today.getMonth() + 1}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MetricCard label="今月の合計" value={formatYen(monthTotal)} note="支出と医療費を合算" />
+        <MetricCard label="記録件数" value={`${monthEntries.length} 件`} note="日付セルから確認できます" />
+        <MetricCard label="動いた日" value={`${activeDays} 日`} note="入力のある日だけを集計" />
       </div>
 
       <section className="planner-card overflow-hidden">
-        <div className="grid grid-cols-7 border-b border-[var(--planner-line)] bg-[var(--planner-week)]">
+        <div className="planner-calendar-header">
           {WEEKDAYS.map((weekday) => (
-            <div key={weekday} className="py-2 text-center text-xs font-semibold text-[var(--planner-subtle)]">
+            <div key={weekday} className="planner-calendar-weekday">
               {weekday}
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7 gap-px bg-[var(--planner-line)]">
-          {cells.map((cell, index) => {
+        <div className="planner-calendar-grid">
+          {calendarCells.map((cell, index) => {
             const summary = cell.date ? summaries[cell.date] : undefined;
-            const icons = summary ? uniqueIcons(summary.entries) : [];
             const isSelected = cell.date === selectedDate;
-
             return (
               <button
                 key={`${cell.date ?? "blank"}-${index}`}
                 type="button"
-                className={`planner-calendar-cell ${cell.inMonth ? "" : "planner-calendar-cell-muted"} ${
-                  isSelected ? "planner-calendar-cell-active" : ""
-                }`}
-                onClick={() => cell.date && setSelectedDate(cell.date)}
                 disabled={!cell.date}
+                onClick={() => cell.date && setSelectedDate(cell.date)}
+                className={`planner-calendar-tile ${!cell.inMonth ? "planner-calendar-tile-muted" : ""} ${
+                  isSelected ? "planner-calendar-tile-active" : ""
+                }`}
               >
-                {cell.date && (
+                {cell.date ? (
                   <>
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-xs font-semibold text-[var(--planner-text)]">
-                        {new Date(`${cell.date}T00:00:00`).getDate()}
-                      </span>
-                      {summary && (
-                        <span className="text-[10px] font-semibold text-[var(--planner-accent)]">
-                          {compactYen(summary.total)}
-                        </span>
-                      )}
+                      <span className="text-xs font-semibold">{parseInt(cell.date.slice(-2), 10)}</span>
+                      {summary ? <span className="text-[10px] font-semibold text-[var(--planner-accent)]">{compactYen(summary.total)}</span> : null}
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {icons.slice(0, 3).map((iconMeta) => {
-                        const Icon = resolveIcon(iconMeta.icon, "ReceiptText");
-                        return (
-                          <span
-                            key={`${cell.date}-${iconMeta.icon}-${iconMeta.color}`}
-                            className="flex h-6 w-6 items-center justify-center rounded-full"
-                            style={{ backgroundColor: `${iconMeta.color}22` }}
-                          >
-                            <Icon size={12} color={iconMeta.color} />
-                          </span>
-                        );
-                      })}
-                      {icons.length > 3 && (
-                        <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-[var(--planner-chip)] px-1 text-[10px] font-semibold text-[var(--planner-subtle)]">
-                          +{icons.length - 3}
-                        </span>
-                      )}
-                    </div>
+                    {summary ? (
+                      <div className="mt-2 space-y-1">
+                        <div className="flex flex-wrap gap-1">
+                          {summary.entries.slice(0, 2).map((entry) => {
+                            const Icon = resolveIcon(entry.icon, "ReceiptText");
+                            return (
+                              <span key={entry.id} className="planner-mini-stamp" style={{ backgroundColor: `${entry.color}18`, color: entry.color }}>
+                                <Icon size={12} />
+                              </span>
+                            );
+                          })}
+                          {summary.entries.length > 2 ? <span className="planner-mini-count">+{summary.entries.length - 2}</span> : null}
+                        </div>
+                        <p className="truncate text-[10px] text-[var(--planner-subtle)]">{summary.entries[0]?.title}</p>
+                      </div>
+                    ) : null}
                   </>
-                )}
+                ) : null}
               </button>
             );
           })}
         </div>
       </section>
 
-      {selectedDate && (
-        <section className="planner-card">
-          <div className="planner-section-header">
-            <div>
-              <p className="planner-kicker">この日に追加</p>
-              <h3 className="planner-subheading">{formatDateLabel(selectedDate)}</h3>
-            </div>
-            {selectedSummary && <p className="text-lg font-bold text-[var(--planner-accent)]">{formatYen(selectedSummary.total)}</p>}
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <button type="button" onClick={() => onAddExpense(selectedDate)} className="planner-action w-full bg-[var(--planner-accent)] text-white">
-              支出を記録
-            </button>
-            <button type="button" onClick={() => onAddMedical(selectedDate)} className="planner-action w-full bg-[var(--planner-danger)] text-white">
-              医療費を記録
-            </button>
-          </div>
-        </section>
-      )}
-
-      <div className="grid gap-3 md:grid-cols-3">
-        <SummaryCard label="今月の合計" value={formatYen(monthTotal)} note="支出と医療費をまとめて確認" />
-        <SummaryCard label="記録件数" value={`${monthEntries.length}件`} note="その月に入力した記録数" />
-        <SummaryCard label="動いた日数" value={`${activeDays}日`} note="家計の動きがあった日" />
-      </div>
-
       <section className="planner-card">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div>
-            <p className="planner-kicker">選択した日の内容</p>
-            <h3 className="planner-subheading">{selectedSummary ? formatDateLabel(selectedSummary.date) : "日付を選んでください"}</h3>
-          </div>
-          {selectedSummary && <p className="text-lg font-bold text-[var(--planner-accent)]">{formatYen(selectedSummary.total)}</p>}
+        <SectionHeader kicker="DAY SHEET" title={formatDateDisplay(selectedDate)} description="確認と追加をひとつの場所にまとめています。" />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <button type="button" onClick={() => onAddExpense(selectedDate)} className="planner-primary-inline planner-primary-inline-accent">
+            <NotebookPen size={16} />
+            支出を手入力
+          </button>
+          <button type="button" onClick={() => onAddExpenseReceipt(selectedDate)} className="planner-secondary-inline">
+            <ScanText size={16} />
+            レシートで支出追加
+          </button>
+          <button type="button" onClick={() => onAddMedical(selectedDate)} className="planner-primary-inline planner-primary-inline-medical">
+            <HeartPulse size={16} />
+            医療費を手入力
+          </button>
+          <button type="button" onClick={() => onAddMedicalReceipt(selectedDate)} className="planner-secondary-inline">
+            <ScanText size={16} />
+            レシートで医療費追加
+          </button>
         </div>
 
-        {!selectedSummary ? (
-          <p className="rounded-[24px] bg-[var(--planner-soft)] px-4 py-6 text-center text-sm text-[var(--planner-subtle)]">
-            カレンダーの日付を押すと、その日の内容がここに表示されます。
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {selectedSummary.entries.map((entry) => {
-              const Icon = entry.type === "medical" ? HeartPulse : resolveIcon(entry.icon, "ReceiptText");
+        <div className="mt-4 space-y-3">
+          {!selectedSummary ? (
+            <EmptyState title="この日の記録はありません" message="上のボタンから、そのままこの日付で新しい記録を追加できます。" />
+          ) : (
+            selectedSummary.entries.map((entry) => {
+              const Icon = resolveIcon(entry.icon, "ReceiptText");
               return (
-                <div key={entry.id} className="planner-row">
-                  <div
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px]"
-                    style={{ backgroundColor: `${entry.color}22` }}
-                  >
-                    <Icon size={18} color={entry.color} />
+                <div key={entry.id} className="planner-summary-row">
+                  <div className="planner-summary-icon" style={{ backgroundColor: `${entry.color}18`, color: entry.color }}>
+                    <Icon size={16} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="planner-wrap-text text-sm font-semibold text-[var(--planner-text)]">{entry.title}</p>
-                    <p className="planner-wrap-text text-xs text-[var(--planner-subtle)]">{entry.subtitle}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-semibold">{entry.title}</p>
+                      {entry.type === "medical" ? <DataBadge label="医療費" tone="medical" /> : null}
+                    </div>
+                    <p className="truncate text-xs text-[var(--planner-subtle)]">{entry.subtitle}</p>
                   </div>
-                  <p className="text-sm font-bold text-[var(--planner-text)]">{formatYen(entry.amount)}</p>
+                  <p className="text-sm font-semibold">{formatYen(entry.amount)}</p>
                 </div>
               );
-            })}
-          </div>
-        )}
+            })
+          )}
+        </div>
       </section>
-    </div>
-  );
-}
-
-function SummaryCard({ label, value, note }: { label: string; value: string; note: string }) {
-  return (
-    <div className="planner-card">
-      <p className="planner-kicker">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-[var(--planner-text)]">{value}</p>
-      <p className="mt-2 text-xs text-[var(--planner-subtle)]">{note}</p>
     </div>
   );
 }
@@ -291,42 +263,9 @@ function buildCalendarCells(year: number, month: number) {
   return Array.from({ length: cellCount }, (_, index) => {
     const dayNumber = index - startOffset + 1;
     const inMonth = dayNumber >= 1 && dayNumber <= daysInMonth;
-
     return {
       inMonth,
-      date: inMonth ? `${year}-${String(month).padStart(2, "0")}-${String(dayNumber).padStart(2, "0")}` : "",
+      date: inMonth ? `${year}-${String(month).padStart(2, "0")}-${String(dayNumber).padStart(2, "0")}` : undefined,
     };
   });
-}
-
-function uniqueIcons(entries: CalendarEntry[]) {
-  const seen = new Set<string>();
-
-  return entries.reduce<{ icon: string; color: string }[]>((list, entry) => {
-    const key = `${entry.icon}-${entry.color}`;
-    if (seen.has(key)) {
-      return list;
-    }
-
-    seen.add(key);
-    list.push({ icon: entry.icon, color: entry.color });
-    return list;
-  }, []);
-}
-
-function compactYen(value: number) {
-  if (value >= 10000) {
-    return `${Math.round(value / 1000) / 10}万`;
-  }
-
-  return value.toLocaleString("ja-JP");
-}
-
-function formatDateLabel(date: string) {
-  const day = new Date(`${date}T00:00:00`);
-  return `${day.getMonth() + 1}月${day.getDate()}日 (${WEEKDAYS[day.getDay()]})`;
-}
-
-function toDateString(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }

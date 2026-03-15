@@ -1,71 +1,71 @@
-import { useEffect, useRef, useState } from "react";
-import { Camera, CheckCheck, Download, Image, ScanText } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Camera, CheckCheck, Download, Image, Plus, ScanText } from "lucide-react";
 import { v4 as uuid } from "uuid";
 import { db, replaceReceiptItemObservations } from "@/db/database";
-import { todayString, fileToBase64 } from "@/utils";
+import { ActionCard, EmptyState, ScreenIntro, SectionHeader, SegmentedControl, StickyActionBar } from "@/components/ui/PlannerUI";
+import { fileToBase64, formatYen, normalizeDateInput, todayString } from "@/utils";
+import { downloadDataUrl, recognizeExpenseReceipt, toObservationPayload, type ExpenseOcrDraft, type OcrEngine, type OcrReceiptItem } from "@/utils/ocr";
 import { resolveIcon } from "@/utils/icons";
-import { downloadDataUrl, recognizeExpenseReceipt, toObservationPayload, type ExpenseOcrDraft, type OcrEngine } from "@/utils/ocr";
 import type { Category, Member, ShopMaster } from "@/types";
 
 interface Props {
   initialDate?: string;
+  initialMode?: "manual" | "receipt";
   onClose: () => void;
   onSaved: () => void;
 }
 
-export default function AddExpenseModal({ initialDate, onClose, onSaved }: Props) {
+export default function AddExpenseModal({ initialDate, initialMode = "manual", onClose, onSaved }: Props) {
+  const [mode, setMode] = useState<"manual" | "receipt">(initialMode);
   const [categories, setCategories] = useState<Category[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [shops, setShops] = useState<ShopMaster[]>([]);
-
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedMember, setSelectedMember] = useState("");
   const [selectedShop, setSelectedShop] = useState("");
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(initialDate ?? todayString());
+  const [date, setDate] = useState(normalizeDateInput(initialDate, todayString()));
   const [memo, setMemo] = useState("");
   const [imageData, setImageData] = useState("");
-  const [ocrDraft, setOcrDraft] = useState<ExpenseOcrDraft | null>(null);
+  const [ocrReview, setOcrReview] = useState<ExpenseOcrDraft | null>(null);
   const [ocrText, setOcrText] = useState("");
   const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
   const [ocrEngine, setOcrEngine] = useState<OcrEngine | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState("");
-  const [newShop, setNewShop] = useState("");
+  const [newShopName, setNewShopName] = useState("");
   const [showNewShop, setShowNewShop] = useState(false);
 
-  const amountRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const load = async () => {
       const [categoryRows, memberRows, shopRows] = await Promise.all([
-        db.categories.orderBy("sortOrder").toArray().then((rows) => rows.filter((category) => category.isActive)),
-        db.members.orderBy("sortOrder").toArray().then((rows) => rows.filter((member) => member.isActive)),
-        db.shopMasters.toArray().then((rows) =>
-          rows.filter((shop) => shop.isActive && shop.shopType === "general").sort((left, right) => right.usageCount - left.usageCount),
-        ),
+        db.categories.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive && !row.isMedical)),
+        db.members.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
+        db.shopMasters.toArray().then((rows) => rows.filter((row) => row.isActive && row.shopType === "general").sort((left, right) => right.usageCount - left.usageCount)),
       ]);
-      setCategories(categoryRows.filter((category) => !category.isMedical));
+      setCategories(categoryRows);
       setMembers(memberRows);
       setShops(shopRows);
     };
 
-    load();
-    setTimeout(() => amountRef.current?.focus(), 300);
+    void load();
   }, []);
 
   useEffect(() => {
-    if (initialDate) {
-      setDate(initialDate);
-    }
+    setDate(normalizeDateInput(initialDate, todayString()));
   }, [initialDate]);
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
 
   const handleImage = async (file: File) => {
     const base64 = await fileToBase64(file);
     setImageData(base64);
-    void runOcr(base64);
+    await runOcr(base64);
   };
 
   const runOcr = async (base64: string) => {
@@ -73,48 +73,87 @@ export default function AddExpenseModal({ initialDate, onClose, onSaved }: Props
     setOcrError("");
     try {
       const result = await recognizeExpenseReceipt(base64);
-      setOcrDraft(result.draft);
+      setOcrReview(result.draft);
       setOcrText(result.text);
       setOcrConfidence(result.confidence);
       setOcrEngine(result.engine);
     } catch (error) {
-      setOcrError(error instanceof Error ? error.message : "OCR に失敗しました");
+      setOcrError(error instanceof Error ? error.message : "OCR に失敗しました。");
     } finally {
       setOcrLoading(false);
     }
   };
 
-  const applyOcrDraft = () => {
-    if (!ocrDraft) return;
+  const applyOcrToForm = () => {
+    if (!ocrReview) return;
 
-    if (ocrDraft.amount) {
-      setAmount(String(ocrDraft.amount));
+    if (ocrReview.amount) {
+      setAmount(String(ocrReview.amount));
     }
-    if (ocrDraft.date) {
-      setDate(ocrDraft.date);
+    if (ocrReview.date) {
+      setDate(ocrReview.date);
     }
-    if (ocrDraft.shopName) {
-      const matchedShopId = findMatchingShopId(shops, ocrDraft.shopName);
-      if (matchedShopId) {
-        setSelectedShop(matchedShopId);
+    if (ocrReview.memo && !memo) {
+      setMemo(ocrReview.memo);
+    }
+    if (ocrReview.shopName) {
+      const matched = findMatchingShop(shops, ocrReview.shopName);
+      if (matched) {
+        setSelectedShop(matched.id);
       } else {
-        setNewShop(ocrDraft.shopName);
         setShowNewShop(true);
-        setMemo((current) => current || ocrDraft.shopName || "");
+        setNewShopName(ocrReview.shopName);
       }
-    }
-    if (ocrDraft.memo) {
-      setMemo((current) => current || ocrDraft.memo || "");
     }
   };
 
-  const addShop = async () => {
-    if (!newShop.trim()) return;
+  const updateReviewItem = (index: number, key: keyof OcrReceiptItem, value: string) => {
+    setOcrReview((current) => {
+      if (!current) {
+        return current;
+      }
 
-    const id = uuid();
+      const nextItems = current.items.map((item, itemIndex) => {
+        if (itemIndex !== index) {
+          return item;
+        }
+
+        if (key === "itemName") {
+          return { ...item, itemName: value, normalizedItemName: value.replace(/\s+/g, "").toLowerCase() };
+        }
+        if (key === "quantityUnit") {
+          return { ...item, quantityUnit: value || undefined };
+        }
+
+        const parsedNumber = value ? Number(value) : undefined;
+        if (key === "quantity") {
+          return { ...item, quantity: parsedNumber };
+        }
+        if (key === "totalPrice") {
+          return { ...item, totalPrice: parsedNumber ? Math.round(parsedNumber) : 0 };
+        }
+        if (key === "unitPrice") {
+          return { ...item, unitPrice: parsedNumber };
+        }
+
+        return item;
+      });
+
+      return { ...current, items: nextItems };
+    });
+  };
+
+  const removeReviewItem = (index: number) => {
+    setOcrReview((current) => (current ? { ...current, items: current.items.filter((_, itemIndex) => itemIndex !== index) } : current));
+  };
+
+  const addShop = async () => {
+    const name = newShopName.trim();
+    if (!name) return;
+
     const shop: ShopMaster = {
-      id,
-      name: newShop.trim(),
+      id: uuid(),
+      name,
       shopType: "general",
       usageCount: 0,
       isActive: true,
@@ -123,46 +162,59 @@ export default function AddExpenseModal({ initialDate, onClose, onSaved }: Props
 
     await db.shopMasters.add(shop);
     setShops((rows) => [shop, ...rows]);
-    setSelectedShop(id);
-    setNewShop("");
+    setSelectedShop(shop.id);
+    setNewShopName("");
     setShowNewShop(false);
   };
 
   const save = async () => {
-    const parsedAmount = parseInt(amount, 10);
+    const parsedAmount = Number(amount);
     if (!parsedAmount || parsedAmount <= 0) {
-      alert("金額を入力してください");
+      window.alert("金額を入力してください。");
       return;
     }
 
-    const shopName = shops.find((shop) => shop.id === selectedShop)?.name;
+    const shopName = shops.find((shop) => shop.id === selectedShop)?.name ?? (newShopName.trim() || undefined);
+    let shopId = selectedShop || undefined;
+
+    if (!shopId && newShopName.trim()) {
+      const shop: ShopMaster = {
+        id: uuid(),
+        name: newShopName.trim(),
+        shopType: "general",
+        usageCount: 0,
+        isActive: true,
+        createdAt: new Date(),
+      };
+      await db.shopMasters.add(shop);
+      setShops((rows) => [shop, ...rows]);
+      shopId = shop.id;
+    }
+
     const expenseId = uuid();
     await db.expenses.add({
       id: expenseId,
       date,
-      amount: parsedAmount,
+      amount: Math.round(parsedAmount),
       memo,
       isChecked: false,
       isFixed: false,
-      productName: ocrDraft?.items?.[0]?.itemName || "",
+      productName: ocrReview?.items[0]?.itemName || "",
       receiptImageData: imageData || undefined,
       memberId: selectedMember || undefined,
       categoryId: selectedCategory || undefined,
-      shopId: selectedShop || undefined,
+      shopId,
       shopName,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
 
-    if (ocrDraft?.items?.length) {
-      await replaceReceiptItemObservations(
-        expenseId,
-        toObservationPayload(ocrDraft, date, shopName, selectedShop || undefined),
-      );
+    if (ocrReview?.items.length) {
+      await replaceReceiptItemObservations(expenseId, toObservationPayload(ocrReview, date, shopName, shopId));
     }
 
-    if (selectedShop) {
-      await db.shopMasters.where("id").equals(selectedShop).modify((shop) => {
+    if (shopId) {
+      await db.shopMasters.where("id").equals(shopId).modify((shop) => {
         shop.usageCount += 1;
       });
     }
@@ -170,224 +222,271 @@ export default function AddExpenseModal({ initialDate, onClose, onSaved }: Props
     onSaved();
   };
 
-  const canSave = parseInt(amount, 10) > 0;
+  const canSave = Number(amount) > 0 && Boolean(date);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
-      <div className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative mx-3 mb-3 flex max-h-[92vh] w-[calc(100%-24px)] flex-col overflow-hidden rounded-[32px] border border-[var(--planner-line)] bg-[var(--planner-paper)] shadow-[0_20px_60px_rgba(78,64,52,0.18)]">
-        <div className="flex items-center justify-between border-b border-[var(--planner-line)] px-5 py-4">
-          <button type="button" onClick={onClose} className="text-sm font-semibold text-[var(--planner-subtle)]">
-            キャンセル
-          </button>
-          <h2 className="planner-subheading text-base">支出を追加</h2>
-          <button type="button" onClick={save} disabled={!canSave} className="text-sm font-bold" style={{ color: canSave ? "var(--planner-accent)" : "var(--planner-line)" }}>
-            保存
-          </button>
-        </div>
+    <div className="planner-modal">
+      <div className="planner-modal-backdrop" onClick={onClose} />
+      <div className="planner-modal-sheet">
+        <div className="planner-modal-scroll">
+          <div className="planner-page">
+            <ScreenIntro
+              kicker="EXPENSE"
+              title="支出を追加"
+              description="手入力とレシート入力を分けて、OCR はフォーム単位で確認してから反映します。"
+            />
 
-        <div className="overflow-y-auto px-5 py-5">
-          <div className="space-y-5">
-            <section className="planner-form-panel">
-              <label className="planner-label">レシート画像</label>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <button type="button" onClick={() => cameraRef.current?.click()} className="planner-action bg-[rgba(106,132,195,0.12)] text-[var(--planner-accent)]">
-                  <Camera size={16} className="mr-2" />
-                  撮影
-                </button>
-                <button type="button" onClick={() => fileRef.current?.click()} className="planner-action bg-[rgba(106,132,195,0.12)] text-[var(--planner-accent)]">
-                  <Image size={16} className="mr-2" />
-                  ライブラリ
-                </button>
-                <div className="planner-action bg-[var(--planner-soft)] text-[var(--planner-subtle)]">{imageData ? "添付済み" : "任意"}</div>
-              </div>
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => event.target.files?.[0] && handleImage(event.target.files[0])} />
-              <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => event.target.files?.[0] && handleImage(event.target.files[0])} />
-            </section>
-
-            {imageData && (
-              <section className="planner-form-panel">
-                <div className="planner-section-header">
-                  <div>
-                    <label className="planner-label mb-1">OCR 読み取り結果</label>
-                    <p className="text-xs text-[var(--planner-subtle)]">
-                      {ocrLoading
-                        ? "読み取り中..."
-                        : ocrEngine === "gemini"
-                          ? "Gemini OCR"
-                          : ocrConfidence !== null
-                            ? `信頼度 ${Math.round(ocrConfidence)}%`
-                            : "画像のみ保持中"}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => downloadDataUrl(imageData, `receipt-${Date.now()}.png`)} className="planner-icon-button" aria-label="写真を保存">
-                      <Download size={16} />
-                    </button>
-                    <button type="button" onClick={() => void runOcr(imageData)} className="planner-icon-button" aria-label="OCR再実行">
-                      <ScanText size={16} />
-                    </button>
-                  </div>
-                </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
-                  <img src={imageData} alt="receipt preview" className="planner-tile h-40 w-full object-cover" />
-                  <div className="space-y-3">
-                    {ocrError && <p className="text-sm text-[var(--planner-danger)]">{ocrError}</p>}
-                    {ocrDraft && (
-                      <div className="rounded-[18px_8px_16px_8px] bg-white p-3">
-                        <p className="text-sm text-[var(--planner-text)]">金額: {ocrDraft.amount ? `¥${ocrDraft.amount.toLocaleString("ja-JP")}` : "未取得"}</p>
-                        <p className="text-sm text-[var(--planner-text)]">日付: {ocrDraft.date ?? "未取得"}</p>
-                        <p className="planner-wrap-text text-sm text-[var(--planner-text)]">店舗候補: {ocrDraft.shopName ?? "未取得"}</p>
-                        <p className="text-sm text-[var(--planner-text)]">商品候補: {ocrDraft.items.length}件</p>
-                        {ocrDraft.items.length > 0 && (
-                          <div className="mt-2 rounded-[16px_8px_14px_8px] bg-[var(--planner-soft)] p-2 text-xs text-[var(--planner-subtle)]">
-                            {ocrDraft.items.slice(0, 3).map((item) => (
-                              <p key={`${item.itemName}-${item.totalPrice}`} className="planner-wrap-text">
-                                {item.itemName} {item.unitPrice ? `(${item.unitPrice}/${item.quantityUnit})` : ""} - ¥{item.totalPrice.toLocaleString("ja-JP")}
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                        <button type="button" onClick={applyOcrDraft} className="planner-action mt-3 w-full bg-[var(--planner-accent)] text-white">
-                          <CheckCheck size={16} className="mr-2" />
-                          項目へ反映する
-                        </button>
-                      </div>
-                    )}
-                    {ocrText && (
-                      <details className="rounded-[18px_8px_16px_8px] bg-white p-3">
-                        <summary className="cursor-pointer text-sm font-semibold text-[var(--planner-subtle)]">読み取った文字を確認</summary>
-                        <pre className="planner-wrap-text mt-3 whitespace-pre-wrap text-xs text-[var(--planner-subtle)]">{ocrText}</pre>
-                      </details>
-                    )}
-                  </div>
-                </div>
-              </section>
-            )}
-
-            <section className="planner-form-panel">
-              <label className="planner-label">金額</label>
-              <div className="flex items-center rounded-[20px] border border-[var(--planner-line)] bg-white px-4">
-                <span className="mr-3 text-2xl font-bold text-[var(--planner-subtle)]">¥</span>
-                <input
-                  ref={amountRef}
-                  type="number"
-                  inputMode="numeric"
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
-                  placeholder="0"
-                  className="w-full border-0 bg-transparent py-3 text-4xl font-bold text-[var(--planner-text)] outline-none"
-                />
-              </div>
-            </section>
-
-            <section className="planner-form-panel">
-              <label className="planner-label">カテゴリ</label>
-              <div className="grid grid-cols-4 gap-2">
-                {categories.map((category) => {
-                  const Icon = resolveIcon(category.icon, "ReceiptText");
-                  const active = selectedCategory === category.id;
-                  return (
-                    <button
-                      key={category.id}
-                      type="button"
-                      onClick={() => setSelectedCategory(active ? "" : category.id)}
-                      className="planner-tile border p-3 text-center"
-                      style={{
-                        borderColor: active ? category.colorHex : "var(--planner-line)",
-                        backgroundColor: active ? `${category.colorHex}22` : "white",
-                      }}
-                    >
-                      <div className="mb-2 flex justify-center">
-                        <Icon size={18} color={active ? category.colorHex : "#8A7D70"} />
-                      </div>
-                      <div className="text-[10px] font-semibold text-[var(--planner-text)]">{category.name}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="planner-form-panel">
-              <label className="planner-label">支払った人</label>
-              <div className="planner-pill-grid">
-                {members.map((member) => (
-                  <button
-                    key={member.id}
-                    type="button"
-                    onClick={() => setSelectedMember(selectedMember === member.id ? "" : member.id)}
-                    className={`planner-pill ${selectedMember === member.id ? "planner-pill-active" : ""}`}
-                  >
-                    {member.shortName}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="planner-form-panel">
-              <label className="planner-label">店舗</label>
-              <div className="planner-pill-grid">
-                {shops.slice(0, 12).map((shop) => (
-                  <button
-                    key={shop.id}
-                    type="button"
-                    onClick={() => setSelectedShop(selectedShop === shop.id ? "" : shop.id)}
-                    className={`planner-pill ${selectedShop === shop.id ? "planner-pill-active" : ""}`}
-                  >
-                    {shop.name}
-                  </button>
-                ))}
-                <button type="button" onClick={() => setShowNewShop((current) => !current)} className="planner-pill">
-                  ＋ 店舗追加
-                </button>
-              </div>
-              {showNewShop && (
-                <div className="mt-3 flex gap-2">
-                  <input
-                    value={newShop}
-                    onChange={(event) => setNewShop(event.target.value)}
-                    onKeyDown={(event) => event.key === "Enter" && addShop()}
-                    placeholder="店舗名を入力"
-                    className="planner-field flex-1"
-                  />
-                  <button type="button" onClick={addShop} className="planner-action bg-[var(--planner-accent)] text-white">
-                    追加
-                  </button>
-                </div>
-              )}
-            </section>
-
-            <section className="planner-form-panel">
-              <label className="planner-label">日付</label>
-              <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="planner-field" />
-            </section>
-
-            <section className="planner-form-panel">
-              <label className="planner-label">メモ</label>
-              <textarea
-                value={memo}
-                onChange={(event) => setMemo(event.target.value)}
-                rows={3}
-                placeholder="例: 週末のまとめ買い"
-                className="planner-field resize-none"
+            <section className="planner-card">
+              <SegmentedControl
+                value={mode}
+                onChange={setMode}
+                options={[
+                  { value: "manual", label: "手入力" },
+                  { value: "receipt", label: "レシート入力" },
+                ]}
               />
             </section>
 
-            <button type="button" onClick={save} disabled={!canSave} className="planner-action w-full border-0 bg-[var(--planner-accent)] text-white disabled:opacity-50">
-              この内容で保存する
-            </button>
+            {mode === "receipt" ? (
+              <>
+                <section className="planner-card">
+                  <SectionHeader kicker="STEP 1" title="画像を読み込む" description="撮影または画像選択で OCR を開始します。" />
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <ActionCard title="撮影する" description="カメラでレシートを取り込む" icon={<Camera size={18} />} tone="accent" onClick={() => cameraRef.current?.click()} />
+                    <ActionCard title="画像を選ぶ" description="端末の写真から読み込む" icon={<Image size={18} />} tone="soft" onClick={() => fileRef.current?.click()} />
+                  </div>
+                  <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => event.target.files?.[0] && void handleImage(event.target.files[0])} />
+                  <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => event.target.files?.[0] && void handleImage(event.target.files[0])} />
+                </section>
+
+                <section className="planner-card">
+                  <SectionHeader
+                    kicker="STEP 2"
+                    title="OCR 結果を確認"
+                    description={ocrLoading ? "OCR を実行中です。" : ocrEngine === "gemini" ? "Gemini で解析しました。" : ocrConfidence !== null ? `信頼度 ${Math.round(ocrConfidence)}%` : "画像を追加すると解析結果が出ます。"}
+                    action={
+                      imageData ? (
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => downloadDataUrl(imageData, `receipt-${Date.now()}.png`)} className="planner-icon-button" aria-label="画像を保存">
+                            <Download size={16} />
+                          </button>
+                          <button type="button" onClick={() => void runOcr(imageData)} className="planner-icon-button" aria-label="OCR 再実行">
+                            <ScanText size={16} />
+                          </button>
+                        </div>
+                      ) : null
+                    }
+                  />
+
+                  {!imageData ? (
+                    <div className="mt-4">
+                      <EmptyState title="レシート画像を待っています" message="画像を追加すると、店舗名、日付、合計金額、商品行をフォームで確認できます。" />
+                    </div>
+                  ) : (
+                    <div className="mt-4 grid gap-4 lg:grid-cols-[160px_minmax(0,1fr)]">
+                      <img src={imageData} alt="receipt preview" className="planner-preview-image" />
+                      <div className="space-y-3">
+                        {ocrError ? <p className="text-sm text-[var(--planner-danger)]">{ocrError}</p> : null}
+                        {ocrReview ? (
+                          <>
+                            <div className="planner-note-card">
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <LabeledValue label="店舗名" value={ocrReview.shopName || "候補なし"} />
+                                <LabeledValue label="日付" value={ocrReview.date || "候補なし"} />
+                                <LabeledValue label="合計金額" value={ocrReview.amount ? formatYen(ocrReview.amount) : "候補なし"} />
+                                <LabeledValue label="メモ候補" value={ocrReview.notes[0] || ocrReview.memo || "候補なし"} />
+                              </div>
+                              <button type="button" onClick={applyOcrToForm} className="planner-primary-inline planner-primary-inline-accent mt-4 w-full justify-center">
+                                <CheckCheck size={16} />
+                                フォームへ反映
+                              </button>
+                            </div>
+
+                            <div className="planner-note-card">
+                              <p className="planner-kicker">商品一覧</p>
+                              <div className="mt-3 space-y-3">
+                                {ocrReview.items.length === 0 ? (
+                                  <EmptyState title="商品行が見つかりませんでした" message="合計だけ反映して、商品名はあとから追記できます。" />
+                                ) : (
+                                  ocrReview.items.map((item, index) => (
+                                    <div key={`${item.sourceText}-${index}`} className="planner-item-editor">
+                                      <input
+                                        value={item.itemName}
+                                        onChange={(event) => updateReviewItem(index, "itemName", event.target.value)}
+                                        className="planner-field"
+                                        placeholder="商品名"
+                                      />
+                                      <div className="grid grid-cols-[1fr_96px_1fr] gap-2">
+                                        <input
+                                          value={item.quantity ?? ""}
+                                          onChange={(event) => updateReviewItem(index, "quantity", event.target.value)}
+                                          className="planner-field"
+                                          inputMode="decimal"
+                                          placeholder="数量"
+                                        />
+                                        <input
+                                          value={item.quantityUnit ?? ""}
+                                          onChange={(event) => updateReviewItem(index, "quantityUnit", event.target.value)}
+                                          className="planner-field"
+                                          placeholder="単位"
+                                        />
+                                        <input
+                                          value={item.totalPrice}
+                                          onChange={(event) => updateReviewItem(index, "totalPrice", event.target.value)}
+                                          className="planner-field"
+                                          inputMode="numeric"
+                                          placeholder="金額"
+                                        />
+                                      </div>
+                                      <button type="button" onClick={() => removeReviewItem(index)} className="text-xs font-semibold text-[var(--planner-subtle)]">
+                                        この行を削除
+                                      </button>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        ) : null}
+
+                        {ocrText ? (
+                          <details className="planner-note-card">
+                            <summary className="cursor-pointer text-sm font-semibold text-[var(--planner-subtle)]">OCR の生データを表示</summary>
+                            <pre className="mt-3 whitespace-pre-wrap text-xs text-[var(--planner-subtle)]">{ocrText}</pre>
+                          </details>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              </>
+            ) : null}
+
+            <section className="planner-card">
+              <SectionHeader kicker={mode === "receipt" ? "STEP 3" : "FORM"} title="保存する内容" description="足りない項目だけ追記して保存します。" />
+              <div className="mt-4 space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="金額">
+                    <input type="number" inputMode="numeric" value={amount} onChange={(event) => setAmount(event.target.value)} className="planner-field" placeholder="0" />
+                  </Field>
+                  <Field label="日付">
+                    <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="planner-field" />
+                  </Field>
+                </div>
+
+                <Field label="カテゴリ">
+                  <div className="grid grid-cols-4 gap-2">
+                    {categories.map((category) => {
+                      const Icon = resolveIcon(category.icon, "ReceiptText");
+                      const active = selectedCategory === category.id;
+                      return (
+                        <button
+                          key={category.id}
+                          type="button"
+                          onClick={() => setSelectedCategory(active ? "" : category.id)}
+                          className="planner-category-chip"
+                          style={{
+                            borderColor: active ? category.colorHex : "var(--planner-line)",
+                            backgroundColor: active ? `${category.colorHex}18` : "var(--planner-paper)",
+                            color: active ? category.colorHex : "var(--planner-text)",
+                          }}
+                        >
+                          <Icon size={16} />
+                          <span>{category.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="対象者">
+                    <div className="planner-pill-grid">
+                      {members.map((member) => (
+                        <button
+                          key={member.id}
+                          type="button"
+                          onClick={() => setSelectedMember(selectedMember === member.id ? "" : member.id)}
+                          className={`planner-pill ${selectedMember === member.id ? "planner-pill-active" : ""}`}
+                        >
+                          {member.shortName}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+
+                  <Field label="店舗">
+                    <div className="planner-pill-grid">
+                      {shops.slice(0, 10).map((shop) => (
+                        <button
+                          key={shop.id}
+                          type="button"
+                          onClick={() => setSelectedShop(selectedShop === shop.id ? "" : shop.id)}
+                          className={`planner-pill ${selectedShop === shop.id ? "planner-pill-active" : ""}`}
+                        >
+                          {shop.name}
+                        </button>
+                      ))}
+                      <button type="button" onClick={() => setShowNewShop((current) => !current)} className="planner-pill">
+                        <Plus size={14} />
+                        新規
+                      </button>
+                    </div>
+                    {showNewShop ? (
+                      <div className="mt-3 flex gap-2">
+                        <input value={newShopName} onChange={(event) => setNewShopName(event.target.value)} className="planner-field" placeholder="店舗名" />
+                        <button type="button" onClick={addShop} className="planner-primary-inline planner-primary-inline-accent">
+                          追加
+                        </button>
+                      </div>
+                    ) : null}
+                  </Field>
+                </div>
+
+                <Field label="メモ">
+                  <textarea value={memo} onChange={(event) => setMemo(event.target.value)} className="planner-field min-h-[88px] resize-none" placeholder="補足メモ" />
+                </Field>
+              </div>
+            </section>
           </div>
         </div>
+
+        <StickyActionBar
+          primaryLabel={mode === "receipt" ? "内容を保存する" : "支出を保存する"}
+          primaryTone="accent"
+          primaryDisabled={!canSave}
+          onPrimary={save}
+          secondaryLabel="閉じる"
+          onSecondary={onClose}
+        />
       </div>
     </div>
   );
 }
 
-function findMatchingShopId(shops: ShopMaster[], candidate: string) {
-  const normalizedCandidate = normalizeMatch(candidate);
-  return shops.find((shop) => normalizedCandidate.includes(normalizeMatch(shop.name)) || normalizeMatch(shop.name).includes(normalizedCandidate))?.id;
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <label className="planner-label">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function LabeledValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="planner-label mb-1">{label}</p>
+      <p className="text-sm text-[var(--planner-text)]">{value}</p>
+    </div>
+  );
+}
+
+function findMatchingShop(shops: ShopMaster[], candidate: string) {
+  const normalized = normalizeMatch(candidate);
+  return shops.find((shop) => normalizeMatch(shop.name) === normalized || normalizeMatch(shop.name).includes(normalized) || normalized.includes(normalizeMatch(shop.name)));
 }
 
 function normalizeMatch(value: string) {
-  return value.replace(/\s/g, "").replace(/[株式会社有限会社]/g, "");
+  return value.replace(/\s+/g, "").toLowerCase();
 }

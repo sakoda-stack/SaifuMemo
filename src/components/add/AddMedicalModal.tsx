@@ -1,18 +1,21 @@
-import { useEffect, useRef, useState } from "react";
-import { Camera, CheckCheck, Download, HeartPulse, Image, ScanText } from "lucide-react";
+import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { Camera, CheckCheck, Download, HeartPulse, Image, Plus, ScanText } from "lucide-react";
 import { v4 as uuid } from "uuid";
 import { db } from "@/db/database";
-import { todayString, fileToBase64, MEDICAL_TYPES } from "@/utils";
+import { ActionCard, DataBadge, EmptyState, ScreenIntro, SectionHeader, SegmentedControl, StickyActionBar } from "@/components/ui/PlannerUI";
+import { fileToBase64, formatYen, MEDICAL_TYPES, normalizeDateInput, todayString } from "@/utils";
 import { downloadDataUrl, recognizeMedicalReceipt, type MedicalOcrDraft, type OcrEngine } from "@/utils/ocr";
 import type { MedicalType, Member, ShopMaster } from "@/types";
 
 interface Props {
   initialDate?: string;
+  initialMode?: "manual" | "receipt";
   onClose: () => void;
   onSaved: () => void;
 }
 
-export default function AddMedicalModal({ initialDate, onClose, onSaved }: Props) {
+export default function AddMedicalModal({ initialDate, initialMode = "manual", onClose, onSaved }: Props) {
+  const [mode, setMode] = useState<"manual" | "receipt">(initialMode);
   const [members, setMembers] = useState<Member[]>([]);
   const [hospitals, setHospitals] = useState<ShopMaster[]>([]);
   const [selectedMember, setSelectedMember] = useState("");
@@ -21,15 +24,16 @@ export default function AddMedicalModal({ initialDate, onClose, onSaved }: Props
   const [isTransportation, setIsTransportation] = useState(false);
   const [amount, setAmount] = useState("");
   const [reimbursedAmount, setReimbursedAmount] = useState("");
-  const [date, setDate] = useState(initialDate ?? todayString());
+  const [date, setDate] = useState(normalizeDateInput(initialDate, todayString()));
+  const [memo, setMemo] = useState("");
   const [imageData, setImageData] = useState("");
-  const [ocrDraft, setOcrDraft] = useState<MedicalOcrDraft | null>(null);
+  const [ocrReview, setOcrReview] = useState<MedicalOcrDraft | null>(null);
   const [ocrText, setOcrText] = useState("");
   const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
   const [ocrEngine, setOcrEngine] = useState<OcrEngine | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState("");
-  const [newHospital, setNewHospital] = useState("");
+  const [newHospitalName, setNewHospitalName] = useState("");
   const [showNewHospital, setShowNewHospital] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -38,10 +42,10 @@ export default function AddMedicalModal({ initialDate, onClose, onSaved }: Props
   useEffect(() => {
     const load = async () => {
       const [memberRows, shopRows] = await Promise.all([
-        db.members.orderBy("sortOrder").toArray().then((rows) => rows.filter((member) => member.isActive)),
+        db.members.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
         db.shopMasters.toArray().then((rows) =>
           rows
-            .filter((shop) => shop.isActive && (shop.shopType === "hospital" || shop.shopType === "pharmacy"))
+            .filter((row) => row.isActive && (row.shopType === "hospital" || row.shopType === "pharmacy"))
             .sort((left, right) => right.usageCount - left.usageCount),
         ),
       ]);
@@ -50,21 +54,79 @@ export default function AddMedicalModal({ initialDate, onClose, onSaved }: Props
       setHospitals(shopRows);
     };
 
-    load();
+    void load();
   }, []);
 
   useEffect(() => {
-    if (initialDate) {
-      setDate(initialDate);
-    }
+    setDate(normalizeDateInput(initialDate, todayString()));
   }, [initialDate]);
 
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
+
+  const handleImage = async (file: File) => {
+    const base64 = await fileToBase64(file);
+    setImageData(base64);
+    await runOcr(base64);
+  };
+
+  const runOcr = async (base64: string) => {
+    setOcrLoading(true);
+    setOcrError("");
+    try {
+      const result = await recognizeMedicalReceipt(base64);
+      setOcrReview(result.draft);
+      setOcrText(result.text);
+      setOcrConfidence(result.confidence);
+      setOcrEngine(result.engine);
+    } catch (error) {
+      setOcrError(error instanceof Error ? error.message : "OCR に失敗しました。");
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
+  const applyOcrToForm = () => {
+    if (!ocrReview) return;
+
+    if (ocrReview.amount) {
+      setAmount(String(ocrReview.amount));
+    }
+    if (ocrReview.date) {
+      setDate(ocrReview.date);
+    }
+    if (ocrReview.hospitalName) {
+      const matched = findMatchingHospital(hospitals, ocrReview.hospitalName);
+      if (matched) {
+        setSelectedHospital(matched.id);
+      } else {
+        setShowNewHospital(true);
+        setNewHospitalName(ocrReview.hospitalName);
+      }
+    }
+    if (ocrReview.medicalType) {
+      setIsTransportation(ocrReview.medicalType === "通院交通費");
+      if (ocrReview.medicalType !== "通院交通費") {
+        setMedicalType(ocrReview.medicalType);
+      }
+    }
+    if (!memo) {
+      setMemo(
+        [...ocrReview.medicineCandidates.map((candidate) => candidate.value), ...ocrReview.memoCandidates.map((candidate) => candidate.value)]
+          .slice(0, 3)
+          .join(" / "),
+      );
+    }
+  };
+
   const addHospital = async () => {
-    if (!newHospital.trim()) return;
+    const name = newHospitalName.trim();
+    if (!name) return;
 
     const hospital: ShopMaster = {
       id: uuid(),
-      name: newHospital.trim(),
+      name,
       shopType: "hospital",
       usageCount: 0,
       isActive: true,
@@ -74,86 +136,56 @@ export default function AddMedicalModal({ initialDate, onClose, onSaved }: Props
     await db.shopMasters.add(hospital);
     setHospitals((rows) => [hospital, ...rows]);
     setSelectedHospital(hospital.id);
-    setNewHospital("");
+    setNewHospitalName("");
     setShowNewHospital(false);
   };
 
-  const handleImage = async (file: File) => {
-    const base64 = await fileToBase64(file);
-    setImageData(base64);
-    void runOcr(base64);
-  };
-
-  const runOcr = async (base64: string) => {
-    setOcrLoading(true);
-    setOcrError("");
-    try {
-      const result = await recognizeMedicalReceipt(base64);
-      setOcrDraft(result.draft);
-      setOcrText(result.text);
-      setOcrConfidence(result.confidence);
-      setOcrEngine(result.engine);
-    } catch (error) {
-      setOcrError(error instanceof Error ? error.message : "OCR に失敗しました");
-    } finally {
-      setOcrLoading(false);
-    }
-  };
-
-  const applyOcrDraft = () => {
-    if (!ocrDraft) return;
-
-    if (ocrDraft.amount) {
-      setAmount(String(ocrDraft.amount));
-    }
-    if (ocrDraft.date) {
-      setDate(ocrDraft.date);
-    }
-    if (ocrDraft.hospitalName) {
-      const matchedHospitalId = findMatchingHospitalId(hospitals, ocrDraft.hospitalName);
-      if (matchedHospitalId) {
-        setSelectedHospital(matchedHospitalId);
-      } else {
-        setNewHospital(ocrDraft.hospitalName);
-        setShowNewHospital(true);
-      }
-    }
-    if (ocrDraft.medicalType) {
-      setMedicalType(ocrDraft.medicalType);
-      setIsTransportation(ocrDraft.medicalType === "通院交通費");
-    }
-  };
-
   const save = async () => {
-    const parsedAmount = parseInt(amount, 10);
+    const parsedAmount = Number(amount);
     if (!selectedMember) {
-      alert("医療を受けた人を選択してください");
+      window.alert("対象者を選択してください。");
       return;
     }
     if (!parsedAmount || parsedAmount <= 0) {
-      alert("金額を入力してください");
+      window.alert("金額を入力してください。");
       return;
     }
 
-    const hospitalName = hospitals.find((hospital) => hospital.id === selectedHospital)?.name;
+    let hospitalId = selectedHospital || undefined;
+    if (!hospitalId && newHospitalName.trim()) {
+      const hospital: ShopMaster = {
+        id: uuid(),
+        name: newHospitalName.trim(),
+        shopType: "hospital",
+        usageCount: 0,
+        isActive: true,
+        createdAt: new Date(),
+      };
+      await db.shopMasters.add(hospital);
+      setHospitals((rows) => [hospital, ...rows]);
+      hospitalId = hospital.id;
+    }
+
+    const hospitalName = hospitals.find((hospital) => hospital.id === hospitalId)?.name ?? (newHospitalName.trim() || undefined);
     await db.medicalExpenses.add({
       id: uuid(),
       paymentDate: date,
-      amount: parsedAmount,
-      reimbursedAmount: parseInt(reimbursedAmount, 10) || 0,
+      amount: Math.round(parsedAmount),
+      reimbursedAmount: Math.max(0, Math.round(Number(reimbursedAmount) || 0)),
       medicalType: isTransportation ? "通院交通費" : medicalType,
       isTransportation,
       isChecked: false,
       fiscalYear: parseInt(date.slice(0, 4), 10),
       receiptImageData: imageData || undefined,
-      memberId: selectedMember || undefined,
-      hospitalId: selectedHospital || undefined,
+      memberId: selectedMember,
+      hospitalId,
       hospitalName,
+      memo: memo.trim() || undefined,
       createdAt: new Date(),
     });
 
-    if (selectedHospital) {
-      await db.shopMasters.where("id").equals(selectedHospital).modify((hospital) => {
+    if (hospitalId) {
+      await db.shopMasters.where("id").equals(hospitalId).modify((hospital) => {
         hospital.usageCount += 1;
       });
     }
@@ -161,237 +193,308 @@ export default function AddMedicalModal({ initialDate, onClose, onSaved }: Props
     onSaved();
   };
 
-  const canSave = !!selectedMember && parseInt(amount, 10) > 0;
+  const canSave = Boolean(selectedMember) && Number(amount) > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
-      <div className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative mx-3 mb-3 flex max-h-[92vh] w-[calc(100%-24px)] flex-col overflow-hidden rounded-[32px] border border-[var(--planner-line)] bg-[var(--planner-paper)] shadow-[0_20px_60px_rgba(78,64,52,0.18)]">
-        <div className="flex items-center justify-between border-b border-[var(--planner-line)] px-5 py-4">
-          <button type="button" onClick={onClose} className="text-sm font-semibold text-[var(--planner-subtle)]">
-            キャンセル
-          </button>
-          <h2 className="planner-subheading text-base">医療費を追加</h2>
-          <button type="button" onClick={save} disabled={!canSave} className="text-sm font-bold" style={{ color: canSave ? "var(--planner-danger)" : "var(--planner-line)" }}>
-            保存
-          </button>
-        </div>
+    <div className="planner-modal">
+      <div className="planner-modal-backdrop" onClick={onClose} />
+      <div className="planner-modal-sheet">
+        <div className="planner-modal-scroll">
+          <div className="planner-page">
+            <ScreenIntro
+              kicker="MEDICAL"
+              title="医療費を追加"
+              description="手入力とレシート入力を分け、病院名や医療区分は候補として確認できるようにします。"
+            />
 
-        <div className="overflow-y-auto px-5 py-5">
-          <div className="space-y-5">
-            <section className="planner-form-panel bg-[rgba(212,106,106,0.08)]">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-[16px] bg-[rgba(212,106,106,0.16)]">
-                  <HeartPulse size={18} className="text-[var(--planner-danger)]" />
-                </div>
-                <p className="text-sm text-[var(--planner-text)]">医療費控除に使う前提で、病院代・薬代・通院交通費をまとめられます。</p>
-              </div>
-            </section>
-
-            <section className="planner-form-panel">
-              <label className="planner-label">レシート画像</label>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <button type="button" onClick={() => cameraRef.current?.click()} className="planner-action bg-[rgba(212,106,106,0.12)] text-[var(--planner-danger)]">
-                  <Camera size={16} className="mr-2" />
-                  撮影
-                </button>
-                <button type="button" onClick={() => fileRef.current?.click()} className="planner-action bg-[rgba(212,106,106,0.12)] text-[var(--planner-danger)]">
-                  <Image size={16} className="mr-2" />
-                  ライブラリ
-                </button>
-                <div className="planner-action bg-[var(--planner-soft)] text-[var(--planner-subtle)]">{imageData ? "添付済み" : "任意"}</div>
-              </div>
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => event.target.files?.[0] && handleImage(event.target.files[0])} />
-              <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => event.target.files?.[0] && handleImage(event.target.files[0])} />
-            </section>
-
-            {imageData && (
-              <section className="planner-form-panel">
-                <div className="planner-section-header">
-                  <div>
-                    <label className="planner-label mb-1">OCR 読み取り結果</label>
-                    <p className="text-xs text-[var(--planner-subtle)]">
-                      {ocrLoading
-                        ? "読み取り中..."
-                        : ocrEngine === "gemini"
-                          ? "Gemini OCR"
-                          : ocrConfidence !== null
-                            ? `信頼度 ${Math.round(ocrConfidence)}%`
-                            : "画像のみ保持中"}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => downloadDataUrl(imageData, `medical-receipt-${Date.now()}.png`)} className="planner-icon-button" aria-label="写真を保存">
-                      <Download size={16} />
-                    </button>
-                    <button type="button" onClick={() => void runOcr(imageData)} className="planner-icon-button" aria-label="OCR再実行">
-                      <ScanText size={16} />
-                    </button>
-                  </div>
-                </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
-                  <img src={imageData} alt="medical receipt preview" className="planner-tile h-40 w-full object-cover" />
-                  <div className="space-y-3">
-                    {ocrError && <p className="text-sm text-[var(--planner-danger)]">{ocrError}</p>}
-                    {ocrDraft && (
-                      <div className="rounded-[18px_8px_16px_8px] bg-white p-3">
-                        <p className="text-sm text-[var(--planner-text)]">金額: {ocrDraft.amount ? `¥${ocrDraft.amount.toLocaleString("ja-JP")}` : "未取得"}</p>
-                        <p className="text-sm text-[var(--planner-text)]">日付: {ocrDraft.date ?? "未取得"}</p>
-                        <p className="planner-wrap-text text-sm text-[var(--planner-text)]">病院候補: {ocrDraft.hospitalName ?? "未取得"}</p>
-                        <p className="text-sm text-[var(--planner-text)]">区分候補: {ocrDraft.medicalType ?? "未取得"}</p>
-                        <button type="button" onClick={applyOcrDraft} className="planner-action mt-3 w-full bg-[var(--planner-danger)] text-white">
-                          <CheckCheck size={16} className="mr-2" />
-                          項目へ反映する
-                        </button>
-                      </div>
-                    )}
-                    {ocrText && (
-                      <details className="rounded-[18px_8px_16px_8px] bg-white p-3">
-                        <summary className="cursor-pointer text-sm font-semibold text-[var(--planner-subtle)]">読み取った文字を確認</summary>
-                        <pre className="planner-wrap-text mt-3 whitespace-pre-wrap text-xs text-[var(--planner-subtle)]">{ocrText}</pre>
-                      </details>
-                    )}
-                  </div>
-                </div>
-              </section>
-            )}
-
-            <section className="planner-form-panel">
-              <label className="planner-label">支払った金額</label>
-              <div className="flex items-center rounded-[20px] border border-[var(--planner-line)] bg-white px-4">
-                <span className="mr-3 text-2xl font-bold text-[var(--planner-subtle)]">¥</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
-                  placeholder="0"
-                  className="w-full border-0 bg-transparent py-3 text-4xl font-bold text-[var(--planner-text)] outline-none"
-                />
-              </div>
-            </section>
-
-            <section className="planner-form-panel">
-              <label className="planner-label">医療を受けた人</label>
-              <div className="planner-pill-grid">
-                {members.map((member) => (
-                  <button
-                    key={member.id}
-                    type="button"
-                    onClick={() => setSelectedMember(selectedMember === member.id ? "" : member.id)}
-                    className={`planner-pill ${selectedMember === member.id ? "planner-pill-active" : ""}`}
-                  >
-                    {member.shortName}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="planner-form-panel">
-              <label className="planner-label">病院・薬局</label>
-              <div className="planner-pill-grid">
-                {hospitals.slice(0, 12).map((hospital) => (
-                  <button
-                    key={hospital.id}
-                    type="button"
-                    onClick={() => setSelectedHospital(selectedHospital === hospital.id ? "" : hospital.id)}
-                    className={`planner-pill ${selectedHospital === hospital.id ? "planner-pill-active" : ""}`}
-                  >
-                    {hospital.name}
-                  </button>
-                ))}
-                <button type="button" onClick={() => setShowNewHospital((current) => !current)} className="planner-pill">
-                  ＋ 病院追加
-                </button>
-              </div>
-              {showNewHospital && (
-                <div className="mt-3 flex gap-2">
-                  <input
-                    value={newHospital}
-                    onChange={(event) => setNewHospital(event.target.value)}
-                    placeholder="病院名・薬局名"
-                    className="planner-field flex-1"
-                  />
-                  <button type="button" onClick={addHospital} className="planner-action bg-[var(--planner-danger)] text-white">
-                    追加
-                  </button>
-                </div>
-              )}
-            </section>
-
-            <section className="planner-form-panel">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <label className="planner-label mb-1">通院交通費として登録</label>
-                  <p className="text-xs text-[var(--planner-subtle)]">電車・バスなどの交通費を医療費に含めます。</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsTransportation((current) => !current)}
-                  className="flex h-8 w-14 items-center rounded-full px-1"
-                  style={{ backgroundColor: isTransportation ? "var(--planner-accent)" : "var(--planner-line)" }}
-                >
-                  <span className={`h-6 w-6 rounded-full bg-white shadow transition-transform ${isTransportation ? "translate-x-6" : ""}`} />
-                </button>
-              </div>
-            </section>
-
-            {!isTransportation && (
-              <section className="planner-form-panel">
-                <label className="planner-label">医療費区分</label>
-                <div className="space-y-2">
-                  {MEDICAL_TYPES.map((type) => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setMedicalType(type)}
-                      className="flex w-full items-center gap-3 rounded-[18px] border px-4 py-3 text-left"
-                      style={{
-                        borderColor: medicalType === type ? "var(--planner-danger)" : "var(--planner-line)",
-                        backgroundColor: medicalType === type ? "rgba(212,106,106,0.08)" : "white",
-                      }}
-                    >
-                      <span className={`h-4 w-4 rounded-full border-2 ${medicalType === type ? "border-[var(--planner-danger)] bg-[var(--planner-danger)]" : "border-[var(--planner-line)]"}`} />
-                      <span className="text-sm font-semibold text-[var(--planner-text)]">{type}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            <section className="planner-form-panel">
-              <label className="planner-label">補填される金額</label>
-              <input
-                type="number"
-                inputMode="numeric"
-                value={reimbursedAmount}
-                onChange={(event) => setReimbursedAmount(event.target.value)}
-                placeholder="0"
-                className="planner-field"
+            <section className="planner-card">
+              <SegmentedControl
+                value={mode}
+                onChange={setMode}
+                options={[
+                  { value: "manual", label: "手入力" },
+                  { value: "receipt", label: "レシート入力" },
+                ]}
               />
-              <p className="mt-2 text-xs text-[var(--planner-subtle)]">保険金や高額療養費がある場合だけ入力してください。</p>
             </section>
 
-            <section className="planner-form-panel">
-              <label className="planner-label">支払日</label>
-              <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="planner-field" />
-            </section>
+            {mode === "receipt" ? (
+              <>
+                <section className="planner-card">
+                  <SectionHeader kicker="STEP 1" title="画像を読み込む" description="病院・薬局のレシートを撮影または選択します。" />
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <ActionCard title="撮影する" description="カメラで取り込む" icon={<Camera size={18} />} tone="medical" onClick={() => cameraRef.current?.click()} />
+                    <ActionCard title="画像を選ぶ" description="端末の写真から取り込む" icon={<Image size={18} />} tone="soft" onClick={() => fileRef.current?.click()} />
+                  </div>
+                  <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => event.target.files?.[0] && void handleImage(event.target.files[0])} />
+                  <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => event.target.files?.[0] && void handleImage(event.target.files[0])} />
+                </section>
 
-            <button type="button" onClick={save} disabled={!canSave} className="planner-action w-full border-0 bg-[var(--planner-danger)] text-white disabled:opacity-50">
-              この内容で保存する
-            </button>
+                <section className="planner-card">
+                  <SectionHeader
+                    kicker="STEP 2"
+                    title="候補を確認する"
+                    description={ocrLoading ? "OCR を実行中です。" : ocrEngine === "gemini" ? "Gemini で解析しました。" : ocrConfidence !== null ? `信頼度 ${Math.round(ocrConfidence)}%` : "画像を追加すると候補が出ます。"}
+                    action={
+                      imageData ? (
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => downloadDataUrl(imageData, `medical-${Date.now()}.png`)} className="planner-icon-button" aria-label="画像を保存">
+                            <Download size={16} />
+                          </button>
+                          <button type="button" onClick={() => void runOcr(imageData)} className="planner-icon-button" aria-label="OCR 再実行">
+                            <ScanText size={16} />
+                          </button>
+                        </div>
+                      ) : null
+                    }
+                  />
+
+                  {!imageData ? (
+                    <div className="mt-4">
+                      <EmptyState title="医療レシート画像を待っています" message="病院名、日付、合計金額、医療区分候補、薬候補を抽出します。" />
+                    </div>
+                  ) : (
+                    <div className="mt-4 grid gap-4 lg:grid-cols-[160px_minmax(0,1fr)]">
+                      <img src={imageData} alt="medical receipt preview" className="planner-preview-image" />
+                      <div className="space-y-3">
+                        {ocrError ? <p className="text-sm text-[var(--planner-danger)]">{ocrError}</p> : null}
+                        {ocrReview ? (
+                          <>
+                            <div className="planner-note-card">
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <LabeledValue label="病院名候補" value={ocrReview.hospitalName || "候補なし"} />
+                                <LabeledValue label="支払日" value={ocrReview.date || "候補なし"} />
+                                <LabeledValue label="合計金額" value={ocrReview.amount ? formatYen(ocrReview.amount) : "候補なし"} />
+                                <LabeledValue label="医療区分" value={ocrReview.medicalType || "候補なし"} />
+                              </div>
+                              <button type="button" onClick={applyOcrToForm} className="planner-primary-inline planner-primary-inline-medical mt-4 w-full justify-center">
+                                <CheckCheck size={16} />
+                                フォームへ反映
+                              </button>
+                            </div>
+
+                            <CandidateSection title="病院名候補">
+                              {ocrReview.hospitalCandidates.length === 0 ? (
+                                <EmptyState title="候補なし" message="OCR で病院名を断定できませんでした。" />
+                              ) : (
+                                ocrReview.hospitalCandidates.map((candidate) => (
+                                  <button
+                                    key={candidate.value}
+                                    type="button"
+                                    onClick={() => {
+                                      const matched = findMatchingHospital(hospitals, candidate.value);
+                                      if (matched) {
+                                        setSelectedHospital(matched.id);
+                                      } else {
+                                        setShowNewHospital(true);
+                                        setNewHospitalName(candidate.value);
+                                      }
+                                    }}
+                                    className="planner-inline-pill"
+                                  >
+                                    {candidate.value}
+                                  </button>
+                                ))
+                              )}
+                            </CandidateSection>
+
+                            <CandidateSection title="医療区分候補">
+                              {ocrReview.medicalTypeCandidates.map((candidate) => (
+                                <button
+                                  key={candidate}
+                                  type="button"
+                                  onClick={() => {
+                                    setIsTransportation(candidate === "通院交通費");
+                                    if (candidate !== "通院交通費") {
+                                      setMedicalType(candidate);
+                                    }
+                                  }}
+                                  className="planner-inline-pill"
+                                >
+                                  {candidate}
+                                </button>
+                              ))}
+                            </CandidateSection>
+
+                            <CandidateSection title="薬・処方候補">
+                              {ocrReview.medicineCandidates.length === 0 ? (
+                                <EmptyState title="候補なし" message="薬局レシートでないか、薬名を読み取れませんでした。" />
+                              ) : (
+                                ocrReview.medicineCandidates.map((candidate) => (
+                                  <button key={candidate.value} type="button" onClick={() => appendMemo(candidate.value, setMemo)} className="planner-inline-pill">
+                                    {candidate.value}
+                                  </button>
+                                ))
+                              )}
+                            </CandidateSection>
+
+                            <CandidateSection title="メモ候補">
+                              {ocrReview.memoCandidates.map((candidate) => (
+                                <button key={candidate.value} type="button" onClick={() => appendMemo(candidate.value, setMemo)} className="planner-inline-pill">
+                                  {candidate.value}
+                                </button>
+                              ))}
+                            </CandidateSection>
+                          </>
+                        ) : null}
+
+                        {ocrText ? (
+                          <details className="planner-note-card">
+                            <summary className="cursor-pointer text-sm font-semibold text-[var(--planner-subtle)]">OCR の生データを表示</summary>
+                            <pre className="mt-3 whitespace-pre-wrap text-xs text-[var(--planner-subtle)]">{ocrText}</pre>
+                          </details>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              </>
+            ) : null}
+
+            <section className="planner-card">
+              <SectionHeader kicker={mode === "receipt" ? "STEP 3" : "FORM"} title="保存する内容" description="候補を確認したあとに、確定した情報だけ保存します。" />
+              <div className="mt-4 space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="対象者">
+                    <div className="planner-pill-grid">
+                      {members.map((member) => (
+                        <button
+                          key={member.id}
+                          type="button"
+                          onClick={() => setSelectedMember(selectedMember === member.id ? "" : member.id)}
+                          className={`planner-pill ${selectedMember === member.id ? "planner-pill-active" : ""}`}
+                        >
+                          {member.shortName}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                  <Field label="支払日">
+                    <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="planner-field" />
+                  </Field>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="金額">
+                    <input type="number" inputMode="numeric" value={amount} onChange={(event) => setAmount(event.target.value)} className="planner-field" placeholder="0" />
+                  </Field>
+                  <Field label="補填額">
+                    <input type="number" inputMode="numeric" value={reimbursedAmount} onChange={(event) => setReimbursedAmount(event.target.value)} className="planner-field" placeholder="0" />
+                  </Field>
+                </div>
+
+                <Field label="病院 / 薬局">
+                  <div className="planner-pill-grid">
+                    {hospitals.slice(0, 12).map((hospital) => (
+                      <button
+                        key={hospital.id}
+                        type="button"
+                        onClick={() => setSelectedHospital(selectedHospital === hospital.id ? "" : hospital.id)}
+                        className={`planner-pill ${selectedHospital === hospital.id ? "planner-pill-active" : ""}`}
+                      >
+                        {hospital.name}
+                      </button>
+                    ))}
+                    <button type="button" onClick={() => setShowNewHospital((current) => !current)} className="planner-pill">
+                      <Plus size={14} />
+                      新規
+                    </button>
+                  </div>
+                  {showNewHospital ? (
+                    <div className="mt-3 flex gap-2">
+                      <input value={newHospitalName} onChange={(event) => setNewHospitalName(event.target.value)} className="planner-field" placeholder="病院 / 薬局名" />
+                      <button type="button" onClick={addHospital} className="planner-primary-inline planner-primary-inline-medical">
+                        追加
+                      </button>
+                    </div>
+                  ) : null}
+                </Field>
+
+                <Field label="医療区分">
+                  <div className="grid gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsTransportation((current) => !current)}
+                      className={`planner-inline-toggle ${isTransportation ? "planner-inline-toggle-active" : ""}`}
+                    >
+                      通院交通費として扱う
+                    </button>
+                    {!isTransportation ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {MEDICAL_TYPES.map((type) => (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => setMedicalType(type)}
+                            className={`planner-choice-option ${medicalType === type ? "planner-choice-option-active planner-choice-option-medical" : ""}`}
+                          >
+                            {type}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <DataBadge label="通院交通費" tone="medical" />
+                    )}
+                  </div>
+                </Field>
+
+                <Field label="メモ">
+                  <textarea value={memo} onChange={(event) => setMemo(event.target.value)} className="planner-field min-h-[88px] resize-none" placeholder="薬候補や診療内容の補足" />
+                </Field>
+              </div>
+            </section>
           </div>
         </div>
+
+        <StickyActionBar
+          primaryLabel={mode === "receipt" ? "内容を保存する" : "医療費を保存する"}
+          primaryTone="medical"
+          primaryDisabled={!canSave}
+          onPrimary={save}
+          secondaryLabel="閉じる"
+          onSecondary={onClose}
+        />
       </div>
     </div>
   );
 }
 
-function findMatchingHospitalId(hospitals: ShopMaster[], candidate: string) {
-  const normalizedCandidate = normalizeMatch(candidate);
-  return hospitals.find((hospital) => normalizedCandidate.includes(normalizeMatch(hospital.name)) || normalizeMatch(hospital.name).includes(normalizedCandidate))?.id;
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <label className="planner-label">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function CandidateSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="planner-note-card">
+      <p className="planner-kicker">{title}</p>
+      <div className="mt-3 flex flex-wrap gap-2">{children}</div>
+    </div>
+  );
+}
+
+function LabeledValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="planner-label mb-1">{label}</p>
+      <p className="text-sm text-[var(--planner-text)]">{value}</p>
+    </div>
+  );
+}
+
+function appendMemo(value: string, setMemo: Dispatch<SetStateAction<string>>) {
+  setMemo((current) => (current ? `${current} / ${value}` : value));
+}
+
+function findMatchingHospital(hospitals: ShopMaster[], candidate: string) {
+  const normalized = normalizeMatch(candidate);
+  return hospitals.find((hospital) => normalizeMatch(hospital.name) === normalized || normalizeMatch(hospital.name).includes(normalized) || normalized.includes(normalizeMatch(hospital.name)));
 }
 
 function normalizeMatch(value: string) {
-  return value.replace(/\s/g, "").replace(/[株式会社有限会社]/g, "");
+  return value.replace(/\s+/g, "").toLowerCase();
 }

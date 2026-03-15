@@ -76,6 +76,7 @@ export interface MedicalExpense {
   memberId?: string;
   hospitalId?: string;
   hospitalName?: string;
+  memo?: string;
   createdAt: Date;
 }
 

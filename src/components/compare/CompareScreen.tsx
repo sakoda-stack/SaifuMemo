@@ -1,54 +1,43 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, MapPinned, ReceiptJapaneseYen, Sparkles, Store } from "lucide-react";
+import { ChevronLeft, ChevronRight, Store } from "lucide-react";
 import { db } from "@/db/database";
+import { DataBadge, EmptyState, MetricCard, ScreenIntro, SectionHeader } from "@/components/ui/PlannerUI";
+import { buildProductComparisons, buildStoreSummaries } from "@/utils/compare";
 import { addMonths, formatMonthYear, formatYen, getMonthRange } from "@/utils";
 import type { Expense, Member, ReceiptItemObservation } from "@/types";
-
-interface BargainEntry {
-  best: ReceiptItemObservation;
-  competitor?: ReceiptItemObservation;
-  itemLabel: string;
-  savings?: number;
-}
-
-interface StoreScore {
-  shopName: string;
-  wins: number;
-  averagePrice: number;
-}
 
 export default function CompareScreen() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
-  const [memberFilter, setMemberFilter] = useState<string>("all");
+  const [memberFilter, setMemberFilter] = useState("all");
   const [members, setMembers] = useState<Member[]>([]);
-  const [observations, setObservations] = useState<ReceiptItemObservation[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [observations, setObservations] = useState<ReceiptItemObservation[]>([]);
 
   useEffect(() => {
     const load = async () => {
       const { start, end } = getMonthRange(year, month);
       const [memberRows, expenseRows, observationRows] = await Promise.all([
-        db.members.orderBy("sortOrder").toArray().then((rows) => rows.filter((member) => member.isActive)),
+        db.members.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
         db.expenses.where("date").between(start, end, true, false).toArray(),
         db.receiptItemObservations.where("expenseDate").between(start, end, true, false).toArray(),
       ]);
 
-      const filteredExpenses = memberFilter === "all" ? expenseRows : expenseRows.filter((expense) => expense.memberId === memberFilter);
-      const expenseIds = new Set(filteredExpenses.map((expense) => expense.id));
+      const filteredExpenses = memberFilter === "all" ? expenseRows : expenseRows.filter((row) => row.memberId === memberFilter);
+      const expenseIds = new Set(filteredExpenses.map((row) => row.id));
 
       setMembers(memberRows);
       setExpenses(filteredExpenses);
-      setObservations(observationRows.filter((observation) => expenseIds.has(observation.expenseId)));
+      setObservations(observationRows.filter((row) => expenseIds.has(row.expenseId)));
     };
 
-    load();
+    void load();
   }, [memberFilter, month, year]);
 
-  const bargains = useMemo(() => buildBargainEntries(observations), [observations]);
-  const storeScores = useMemo(() => buildStoreScores(observations), [observations]);
-  const unitComparisons = useMemo(() => buildUnitComparisons(observations), [observations]);
+  const comparisons = useMemo(() => buildProductComparisons(observations), [observations]);
+  const storeSummaries = useMemo(() => buildStoreSummaries(comparisons), [comparisons]);
+  const strongComparisons = comparisons.filter((item) => item.confidence === "strong");
 
   const goMonth = (delta: number) => {
     const next = addMonths(year, month, delta);
@@ -61,219 +50,149 @@ export default function CompareScreen() {
   };
 
   return (
-    <div className="planner-page slide-up">
-      <div className="planner-monthbar">
-        <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
-          <ChevronLeft size={20} />
-        </button>
-        <div className="text-center">
-          <p className="planner-kicker">スーパー比較</p>
-          <h1 className="planner-heading">{formatMonthYear(year, month)}</h1>
-        </div>
-        <button
-          type="button"
-          onClick={() => goMonth(1)}
-          className="planner-icon-button"
-          disabled={year === today.getFullYear() && month === today.getMonth() + 1}
-          aria-label="次の月"
-        >
-          <ChevronRight size={20} />
-        </button>
-      </div>
+    <div className="planner-page">
+      <ScreenIntro
+        kicker="COMPARE"
+        title={formatMonthYear(year, month)}
+        description="各スーパーで何が安いかを、商品別の単価表から先に見せます。"
+        action={
+          <div className="planner-month-switcher">
+            <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => goMonth(1)}
+              className="planner-icon-button"
+              aria-label="次の月"
+              disabled={year === today.getFullYear() && month === today.getMonth() + 1}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        }
+      />
 
-      <section className="planner-card planner-hero-card">
-        <div className="planner-ruled-paper">
-          <p className="planner-kicker">比較の元データ</p>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <MetricCard label="OCR商品数" value={`${observations.length}件`} />
-            <MetricCard label="最安候補" value={`${bargains.length}件`} accent />
-            <MetricCard label="対象レシート" value={`${expenses.length}件`} />
-          </div>
-          <div className="mt-5 planner-pill-grid">
-            {[{ id: "all", shortName: "全員" }, ...members].map((member) => (
-              <button
-                key={member.id}
-                type="button"
-                onClick={() => setMemberFilter(member.id)}
-                className={`planner-pill ${memberFilter === member.id ? "planner-pill-active" : ""}`}
-              >
-                {member.shortName}
-              </button>
-            ))}
-          </div>
+      <section className="planner-card">
+        <SectionHeader kicker="FILTER" title="対象" description="家族ごとに比較したい場合はここで切り替えます。" />
+        <div className="mt-4 planner-pill-grid">
+          {[{ id: "all", shortName: "全員" }, ...members].map((member) => (
+            <button
+              key={member.id}
+              type="button"
+              onClick={() => setMemberFilter(member.id)}
+              className={`planner-pill ${memberFilter === member.id ? "planner-pill-active" : ""}`}
+            >
+              {member.shortName}
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <MetricCard label="OCR 商品行" value={`${observations.length} 件`} note="比較元になった明細数" />
+          <MetricCard label="比較できた商品" value={`${comparisons.length} 件`} tone="accent" note="店ごとの差が見える商品" />
+          <MetricCard label="単価比較" value={`${strongComparisons.length} 件`} note="同じ単位で比較できた件数" />
         </div>
       </section>
 
       <section className="planner-card">
-        <SectionTitle icon={<Sparkles size={16} />} kicker="最安候補" title="今月のお得メモ" />
-        {bargains.length === 0 ? (
-          <EmptyState label="OCRで読み取った商品情報が増えると、ここに店ごとの最安候補が出ます。" />
-        ) : (
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {bargains.slice(0, 6).map((entry) => (
-              <article key={`${entry.itemLabel}-${entry.best.shopName}`} className="planner-note-card">
-                <p className="planner-kicker">この店が安い</p>
-                <h3 className="planner-wrap-text mt-2 text-lg font-bold text-[var(--planner-text)]">{entry.itemLabel}</h3>
-                <p className="mt-3 text-sm text-[var(--planner-subtle)]">{entry.best.shopName || "店名未設定"}</p>
-                <p className="mt-1 text-2xl font-bold text-[var(--planner-accent)]">
-                  {entry.best.unitPrice ? `${entry.best.unitPrice.toLocaleString("ja-JP")}/${entry.best.quantityUnit}` : formatYen(entry.best.totalPrice)}
-                </p>
-                <p className="mt-2 text-xs text-[var(--planner-subtle)]">
-                  {entry.competitor ? `${entry.competitor.shopName}より ${formatYen(entry.savings ?? 0)} 安い` : "比較対象がまだ少ない商品です。"}
-                </p>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
-        <section className="planner-card">
-          <SectionTitle icon={<MapPinned size={16} />} kicker="店ごとの勝ち数" title="どの店が強いか" />
-          {storeScores.length === 0 ? (
-            <EmptyState label="商品価格の比較材料が増えると、店ごとの強みを集計します。" />
+        <SectionHeader kicker="1" title="各スーパーの得意商品" description="まずは各店の勝ち筋から見ます。" />
+        <div className="mt-4 space-y-3">
+          {storeSummaries.length === 0 ? (
+            <EmptyState title="まだ比較できません" message="レシート入力で商品行を取り込むと、各スーパーの得意商品がここに出ます。" />
           ) : (
-            <div className="mt-4 space-y-3">
-              {storeScores.map((score) => (
-                <div key={score.shopName} className="planner-row">
-                  <div className="planner-stamp">{score.wins}</div>
-                  <div className="min-w-0 flex-1">
-                    <p className="planner-wrap-text text-sm font-semibold text-[var(--planner-text)]">{score.shopName}</p>
-                    <p className="text-xs text-[var(--planner-subtle)]">最安を取った品目 {score.wins}件</p>
+            storeSummaries.map((summary) => (
+              <article key={summary.shopName} className="planner-note-card">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="planner-kicker">STORE</p>
+                    <h3 className="mt-2 text-lg font-semibold">{summary.shopName}</h3>
+                    <p className="mt-2 text-sm text-[var(--planner-subtle)]">
+                      強い商品 {summary.strongWinCount} 件 / 勝ち筋 {summary.winCount} 件 / 平均 {formatYen(summary.averageWinningPrice)}
+                    </p>
                   </div>
-                  <p className="text-sm font-bold text-[var(--planner-text)]">平均 {formatYen(Math.round(score.averagePrice))}</p>
+                  <DataBadge label={`${summary.winCount} wins`} tone="accent" />
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="planner-card">
-          <SectionTitle icon={<ReceiptJapaneseYen size={16} />} kicker="単価比較" title="バラ買いで見比べる" />
-          {unitComparisons.length === 0 ? (
-            <EmptyState label="枚数やml付きの商品が増えると、単価の安い順で並びます。" />
-          ) : (
-            <div className="mt-4 space-y-3">
-              {unitComparisons.slice(0, 6).map((entry) => (
-                <div key={`${entry.itemLabel}-${entry.best.shopName}`} className="planner-note-card">
-                  <p className="planner-wrap-text text-sm font-semibold text-[var(--planner-text)]">{entry.itemLabel}</p>
-                  <p className="mt-1 text-xs text-[var(--planner-subtle)]">{entry.best.shopName}</p>
-                  <p className="mt-2 text-lg font-bold text-[var(--planner-accent)]">
-                    {entry.best.unitPrice?.toLocaleString("ja-JP")}/{entry.best.quantityUnit}
-                  </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {summary.winningItems.slice(0, 5).map((item) => (
+                    <span key={`${summary.shopName}-${item.normalizedItemName}`} className="planner-inline-pill">
+                      {item.itemLabel}
+                    </span>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </article>
+            ))
           )}
-        </section>
-      </div>
+        </div>
+      </section>
 
       <section className="planner-card">
-        <SectionTitle icon={<Store size={16} />} kicker="読み取り済み商品" title="比較に使っている明細" />
-        {observations.length === 0 ? (
-          <EmptyState label="レシートOCRから商品名と価格を取り込むと、比較用の明細がここに並びます。" />
-        ) : (
-          <div className="mt-4 space-y-3">
-            {observations.slice(0, 8).map((item) => (
-              <div key={item.id} className="planner-row">
-                <div className="planner-stamp planner-stamp-soft">¥</div>
+        <SectionHeader kicker="2" title="商品別の最安店" description="単価が取れる商品は単価優先、弱いデータは参考扱いにします。" />
+        <div className="mt-4 space-y-3">
+          {comparisons.length === 0 ? (
+            <EmptyState title="商品比較はまだありません" message="同じ商品を別の店で購入すると、ここで最安店が見えるようになります。" />
+          ) : (
+            comparisons.map((comparison) => (
+              <article key={comparison.normalizedItemName} className="planner-comparison-row">
                 <div className="min-w-0 flex-1">
-                  <p className="planner-wrap-text text-sm font-semibold text-[var(--planner-text)]">{item.itemName}</p>
-                  <p className="planner-wrap-text text-xs text-[var(--planner-subtle)]">
-                    {item.shopName || "店名未設定"} ・ {item.expenseDate}
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-semibold">{comparison.itemLabel}</p>
+                    <DataBadge label={comparison.confidence === "strong" ? "比較可" : "参考"} tone={comparison.confidence === "strong" ? "accent" : "warning"} />
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--planner-subtle)]">
+                    最安 {comparison.best.shopName}
+                    {comparison.runnerUp ? ` / 次点 ${comparison.runnerUp.shopName}` : ""}
+                  </p>
+                  <p className="mt-2 text-sm text-[var(--planner-subtle)]">
+                    最終購入日 {comparison.best.latestDate} / サンプル {comparison.best.sampleCount} 件
                   </p>
                 </div>
-                <p className="text-sm font-bold text-[var(--planner-text)]">
-                  {item.unitPrice ? `${item.unitPrice.toLocaleString("ja-JP")}/${item.quantityUnit}` : formatYen(item.totalPrice)}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
+                <div className="text-right">
+                  <p className="text-base font-semibold text-[var(--planner-accent)]">
+                    {comparison.comparisonBasis === "unit" && comparison.best.quantityUnit
+                      ? `${comparison.best.comparisonPrice.toLocaleString("ja-JP")} / ${comparison.best.quantityUnit}`
+                      : formatYen(comparison.best.comparisonPrice)}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--planner-subtle)]">
+                    {comparison.priceGap ? `${formatYen(comparison.priceGap)} 差` : "差額は小さい"}
+                  </p>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+      </section>
+
+      <section className="planner-card">
+        <SectionHeader kicker="3" title="比較元データ" description="どのレシート行を使っているかを最後に一覧します。" />
+        <div className="mt-4 space-y-3">
+          {observations.length === 0 ? (
+            <EmptyState title="明細がありません" message="レシートOCRで商品行を保存すると、比較元データとしてここに並びます。" />
+          ) : (
+            observations
+              .slice()
+              .sort((left, right) => right.expenseDate.localeCompare(left.expenseDate))
+              .slice(0, 30)
+              .map((item) => (
+                <div key={item.id} className="planner-summary-row">
+                  <div className="planner-summary-icon bg-[rgba(72,108,165,0.12)] text-[var(--planner-accent)]">
+                    <Store size={16} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{item.itemName}</p>
+                    <p className="truncate text-xs text-[var(--planner-subtle)]">
+                      {item.shopName || "店舗未設定"} / {item.expenseDate}
+                    </p>
+                  </div>
+                  <p className="text-sm font-semibold">
+                    {item.unitPrice && item.quantityUnit
+                      ? `${item.unitPrice.toLocaleString("ja-JP")} / ${item.quantityUnit}`
+                      : formatYen(item.totalPrice)}
+                  </p>
+                </div>
+              ))
+          )}
+        </div>
       </section>
     </div>
   );
-}
-
-function MetricCard({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="planner-note-card">
-      <p className="planner-kicker">{label}</p>
-      <p className={`mt-2 text-3xl font-bold ${accent ? "text-[var(--planner-accent)]" : "text-[var(--planner-text)]"}`}>{value}</p>
-    </div>
-  );
-}
-
-function SectionTitle({ icon, kicker, title }: { icon: JSX.Element; kicker: string; title: string }) {
-  return (
-    <div className="planner-section-header">
-      <div className="flex items-start gap-3">
-        <div className="planner-stamp planner-stamp-soft">{icon}</div>
-        <div>
-          <p className="planner-kicker">{kicker}</p>
-          <h2 className="planner-subheading">{title}</h2>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function buildBargainEntries(observations: ReceiptItemObservation[]): BargainEntry[] {
-  const byItem = new Map<string, ReceiptItemObservation[]>();
-  observations.forEach((observation) => {
-    if (!observation.normalizedItemName || !(observation.shopName || observation.shopId)) {
-      return;
-    }
-
-    const key = observation.normalizedItemName;
-    byItem.set(key, [...(byItem.get(key) ?? []), observation]);
-  });
-
-  return Array.from(byItem.values())
-    .map((rows) => {
-      const ranked = rows.slice().sort((left, right) => getComparablePrice(left) - getComparablePrice(right));
-      const best = ranked[0];
-      const competitor = ranked.find((row) => (row.shopName || row.shopId) !== (best.shopName || best.shopId));
-
-      return {
-        itemLabel: best.itemName,
-        best,
-        competitor,
-        savings: competitor ? Math.max(0, competitor.totalPrice - best.totalPrice) : undefined,
-      };
-    })
-    .sort((left, right) => (right.savings ?? 0) - (left.savings ?? 0));
-}
-
-function buildStoreScores(observations: ReceiptItemObservation[]): StoreScore[] {
-  const bargains = buildBargainEntries(observations);
-  const map = new Map<string, { wins: number; totalPrice: number }>();
-
-  bargains.forEach((entry) => {
-    const shopName = entry.best.shopName || "店名未設定";
-    const current = map.get(shopName) ?? { wins: 0, totalPrice: 0 };
-    current.wins += 1;
-    current.totalPrice += entry.best.totalPrice;
-    map.set(shopName, current);
-  });
-
-  return Array.from(map.entries())
-    .map(([shopName, stats]) => ({
-      shopName,
-      wins: stats.wins,
-      averagePrice: stats.totalPrice / stats.wins,
-    }))
-    .sort((left, right) => right.wins - left.wins || left.averagePrice - right.averagePrice);
-}
-
-function buildUnitComparisons(observations: ReceiptItemObservation[]) {
-  return buildBargainEntries(observations).filter((entry) => Boolean(entry.best.unitPrice && entry.best.quantityUnit));
-}
-
-function getComparablePrice(observation: ReceiptItemObservation) {
-  return observation.unitPrice ?? observation.totalPrice;
-}
-
-function EmptyState({ label }: { label: string }) {
-  return <p className="rounded-[22px] bg-[var(--planner-soft)] px-4 py-6 text-center text-sm text-[var(--planner-subtle)]">{label}</p>;
 }

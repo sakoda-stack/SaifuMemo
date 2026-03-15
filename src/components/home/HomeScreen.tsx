@@ -1,94 +1,159 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ChevronLeft, ChevronRight, HeartPulse, MapPinned, ReceiptJapaneseYen, ShoppingBasket, Sparkles } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  HeartPulse,
+  List,
+  NotebookPen,
+  ReceiptText,
+  ScanText,
+  Store,
+} from "lucide-react";
 import { db } from "@/db/database";
-import { addMonths, formatMonthYear, formatYen, getMonthRange } from "@/utils";
+import { ActionCard, DataBadge, EmptyState, MetricCard, ScreenIntro, SectionHeader } from "@/components/ui/PlannerUI";
+import { buildProductComparisons, buildStoreSummaries } from "@/utils/compare";
+import { addMonths, compactYen, formatMonthYear, formatYen, getMonthRange, sumBy } from "@/utils";
 import { resolveIcon } from "@/utils/icons";
-import type { Category, CategoryTotal, Expense, MedicalExpense, Member, ReceiptItemObservation } from "@/types";
+import type { Category, Expense, FixedExpenseRecord, FixedExpenseTemplate, MedicalExpense, Member, ReceiptItemObservation } from "@/types";
 
-interface BargainEntry {
-  best: ReceiptItemObservation;
-  competitor?: ReceiptItemObservation;
-  itemLabel: string;
-  savings?: number;
+interface HomeScreenProps {
+  onOpenList: () => void;
+  onOpenCalendar: () => void;
+  onOpenCompare: () => void;
+  onOpenMedicalDashboard: () => void;
+  onOpenExpenseManual: (date?: string) => void;
+  onOpenExpenseReceipt: (date?: string) => void;
+  onOpenMedicalManual: (date?: string) => void;
+  onOpenMedicalReceipt: (date?: string) => void;
 }
 
-interface StoreScore {
-  shopName: string;
-  wins: number;
-  averagePrice: number;
+interface RecentRecord {
+  id: string;
+  date: string;
+  amount: number;
+  title: string;
+  subtitle: string;
+  color: string;
+  icon: string;
 }
 
-export default function HomeScreen() {
+export default function HomeScreen({
+  onOpenList,
+  onOpenCalendar,
+  onOpenCompare,
+  onOpenMedicalDashboard,
+  onOpenExpenseManual,
+  onOpenExpenseReceipt,
+  onOpenMedicalManual,
+  onOpenMedicalReceipt,
+}: HomeScreenProps) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
-  const [memberFilter, setMemberFilter] = useState<string>("all");
-
+  const [memberFilter, setMemberFilter] = useState("all");
   const [members, setMembers] = useState<Member[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [medicals, setMedicals] = useState<MedicalExpense[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [observations, setObservations] = useState<ReceiptItemObservation[]>([]);
-  const [yearMedTotal, setYearMedTotal] = useState(0);
+  const [fixedRecords, setFixedRecords] = useState<FixedExpenseRecord[]>([]);
+  const [fixedTemplates, setFixedTemplates] = useState<FixedExpenseTemplate[]>([]);
 
   useEffect(() => {
     const load = async () => {
       const { start, end } = getMonthRange(year, month);
-      const [memberRows, categoryRows, expenseRows, medicalRows, yearMedicalRows, observationRows] = await Promise.all([
-        db.members.orderBy("sortOrder").toArray().then((rows) => rows.filter((member) => member.isActive)),
-        db.categories.orderBy("sortOrder").toArray().then((rows) => rows.filter((category) => category.isActive)),
+      const [memberRows, categoryRows, expenseRows, medicalRows, observationRows, monthFixedRecords, templateRows] = await Promise.all([
+        db.members.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
+        db.categories.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
         db.expenses.where("date").between(start, end, true, false).toArray(),
         db.medicalExpenses.where("paymentDate").between(start, end, true, false).toArray(),
-        db.medicalExpenses.where("fiscalYear").equals(today.getFullYear()).toArray(),
         db.receiptItemObservations.where("expenseDate").between(start, end, true, false).toArray(),
+        db.fixedRecords.where("[year+month]").equals([year, month]).toArray(),
+        db.fixedTemplates.orderBy("sortOrder").toArray().then((rows) => rows.filter((row) => row.isActive)),
       ]);
 
-      const filteredExpenses = memberFilter === "all" ? expenseRows : expenseRows.filter((expense) => expense.memberId === memberFilter);
-      const filteredExpenseIds = new Set(filteredExpenses.map((expense) => expense.id));
+      const filteredExpenses = memberFilter === "all" ? expenseRows : expenseRows.filter((row) => row.memberId === memberFilter);
+      const filteredMedicals = memberFilter === "all" ? medicalRows : medicalRows.filter((row) => row.memberId === memberFilter);
+      const allowedExpenseIds = new Set(filteredExpenses.map((row) => row.id));
 
       setMembers(memberRows);
       setCategories(categoryRows);
       setExpenses(filteredExpenses);
-      setMedicals(memberFilter === "all" ? medicalRows : medicalRows.filter((medical) => medical.memberId === memberFilter));
-      setObservations(observationRows.filter((observation) => filteredExpenseIds.has(observation.expenseId)));
-      setYearMedTotal(yearMedicalRows.reduce((sum, record) => sum + record.amount - record.reimbursedAmount, 0));
+      setMedicals(filteredMedicals);
+      setObservations(observationRows.filter((row) => allowedExpenseIds.has(row.expenseId)));
+      setFixedRecords(monthFixedRecords);
+      setFixedTemplates(templateRows);
     };
 
-    load();
+    void load();
   }, [memberFilter, month, year]);
 
-  const monthTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0) + medicals.reduce((sum, medical) => sum + medical.amount, 0);
-  const medicalTotal = medicals.reduce((sum, medical) => sum + medical.amount, 0);
+  const monthTotal = sumBy(expenses, (expense) => expense.amount);
+  const medicalTotal = sumBy(medicals, (medical) => medical.amount);
+  const recordCount = expenses.length + medicals.length;
   const activeDays = new Set([...expenses.map((expense) => expense.date), ...medicals.map((medical) => medical.paymentDate)]).size;
-
-  const categoryTotals: CategoryTotal[] = categories
+  const pendingOcrCount =
+    expenses.filter((expense) => expense.receiptImageData && !expense.isChecked).length +
+    medicals.filter((medical) => medical.receiptImageData && !medical.isChecked).length;
+  const fixedTotal = sumBy(fixedRecords, (record) => record.actualAmount);
+  const unconfirmedFixedCount = fixedRecords.filter((record) => !record.isConfirmed).length;
+  const topCategories = categories
     .map((category) => ({
-      categoryId: category.id,
-      name: category.name,
-      icon: category.icon,
-      color: category.colorHex,
-      total: expenses.filter((expense) => expense.categoryId === category.id).reduce((sum, expense) => sum + expense.amount, 0),
+      ...category,
+      total: sumBy(
+        expenses.filter((expense) => expense.categoryId === category.id),
+        (expense) => expense.amount,
+      ),
     }))
     .filter((category) => category.total > 0)
-    .sort((left, right) => right.total - left.total);
+    .sort((left, right) => right.total - left.total)
+    .slice(0, 4);
 
-  const recent = [
-    ...expenses.map((expense) => ({ ...expense, displayDate: expense.date, kind: "expense" as const })),
-    ...medicals.map((medical) => ({ ...medical, displayDate: medical.paymentDate, kind: "medical" as const })),
-  ]
-    .sort((left, right) => right.displayDate.localeCompare(left.displayDate))
-    .slice(0, 5);
+  const productComparisons = useMemo(() => buildProductComparisons(observations), [observations]);
+  const storeSummaries = useMemo(() => buildStoreSummaries(productComparisons), [productComparisons]);
 
-  const bargainEntries = useMemo(() => buildBargainEntries(observations), [observations]).slice(0, 5);
-  const storeScores = useMemo(() => buildStoreScores(observations), [observations]).slice(0, 4);
-  const unitComparisons = useMemo(() => buildUnitComparisons(observations), [observations]).slice(0, 4);
+  const recentRecords = useMemo<RecentRecord[]>(() => {
+    const categoryMap = new Map(categories.map((category) => [category.id, category]));
+    const memberMap = new Map(members.map((member) => [member.id, member]));
+
+    return [
+      ...expenses.map((expense) => {
+        const category = categoryMap.get(expense.categoryId ?? "");
+        const member = memberMap.get(expense.memberId ?? "");
+        return {
+          id: expense.id,
+          date: expense.date,
+          amount: expense.amount,
+          title: expense.shopName || expense.memo || "支出",
+          subtitle: `${member?.shortName ?? "未設定"} / ${category?.name ?? "カテゴリ未設定"}`,
+          color: category?.colorHex ?? "#8f8577",
+          icon: category?.icon ?? "ReceiptText",
+        };
+      }),
+      ...medicals.map((medical) => {
+        const member = memberMap.get(medical.memberId ?? "");
+        return {
+          id: medical.id,
+          date: medical.paymentDate,
+          amount: medical.amount,
+          title: medical.hospitalName || "医療費",
+          subtitle: `${member?.shortName ?? "未設定"} / ${medical.isTransportation ? "通院交通費" : medical.medicalType}`,
+          color: "#b84e41",
+          icon: "HeartPulse",
+        };
+      }),
+    ]
+      .sort((left, right) => right.date.localeCompare(left.date))
+      .slice(0, 6);
+  }, [categories, expenses, medicals, members]);
+
+  const topStore = storeSummaries[0];
+  const topDeal = productComparisons[0];
+  const fixedTemplateMap = new Map(fixedTemplates.map((template) => [template.id, template.name]));
 
   const goMonth = (delta: number) => {
     const next = addMonths(year, month, delta);
-    if (
-      next.year > today.getFullYear() ||
-      (next.year === today.getFullYear() && next.month > today.getMonth() + 1)
-    ) {
+    if (next.year > today.getFullYear() || (next.year === today.getFullYear() && next.month > today.getMonth() + 1)) {
       return;
     }
 
@@ -97,289 +162,213 @@ export default function HomeScreen() {
   };
 
   return (
-    <div className="planner-page slide-up">
-      <div className="planner-monthbar">
-        <button onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
-          <ChevronLeft size={20} />
-        </button>
-        <div className="text-center">
-          <p className="planner-kicker">ホーム</p>
-          <h1 className="planner-heading">{formatMonthYear(year, month)}</h1>
-        </div>
-        <button
-          onClick={() => goMonth(1)}
-          className="planner-icon-button"
-          disabled={year === today.getFullYear() && month === today.getMonth() + 1}
-          aria-label="次の月"
-        >
-          <ChevronRight size={20} />
-        </button>
-      </div>
-
-      <section className="planner-card planner-hero-card">
-        <div className="planner-ruled-paper">
-          <p className="planner-kicker">今月の家計ノート</p>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <HeroMetric label="支出合計" value={formatYen(monthTotal)} accent />
-            <HeroMetric label="医療費" value={formatYen(medicalTotal)} />
-            <HeroMetric label="動いた日" value={`${activeDays}日`} />
+    <div className="planner-page">
+      <ScreenIntro
+        kicker="PORTAL"
+        title={formatMonthYear(year, month)}
+        description="今月の支出、医療費、OCR確認、スーパー比較をここから整理できます。"
+        action={
+          <div className="planner-month-switcher">
+            <button type="button" onClick={() => goMonth(-1)} className="planner-icon-button" aria-label="前の月">
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => goMonth(1)}
+              className="planner-icon-button"
+              aria-label="次の月"
+              disabled={year === today.getFullYear() && month === today.getMonth() + 1}
+            >
+              <ChevronRight size={16} />
+            </button>
           </div>
-          <div className="mt-5 planner-pill-grid">
-            {[{ id: "all", shortName: "全員" }, ...members].map((member) => (
-              <button
-                key={member.id}
-                type="button"
-                onClick={() => setMemberFilter(member.id)}
-                className={`planner-pill ${memberFilter === member.id ? "planner-pill-active" : ""}`}
-              >
-                {member.shortName}
+        }
+      />
+
+      <section className="planner-card">
+        <SectionHeader kicker="SUMMARY" title="今月サマリー" description="見出し、要約、詳細の順に確認できます。" />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <MetricCard label="支出合計" value={formatYen(monthTotal)} tone="accent" note={`家計 ${recordCount} 件`} />
+          <MetricCard label="医療費" value={formatYen(medicalTotal)} tone="medical" note={`補填前 / ${medicals.length} 件`} />
+          <MetricCard label="動きのある日" value={`${activeDays}日`} note="記録が入った日数" />
+          <MetricCard label="固定費" value={formatYen(fixedTotal)} note={unconfirmedFixedCount > 0 ? `未確認 ${unconfirmedFixedCount} 件` : "確認済み"} />
+        </div>
+        <div className="mt-4 planner-pill-grid">
+          {[{ id: "all", shortName: "全員" }, ...members].map((member) => (
+            <button
+              key={member.id}
+              type="button"
+              onClick={() => setMemberFilter(member.id)}
+              className={`planner-pill ${memberFilter === member.id ? "planner-pill-active" : ""}`}
+            >
+              {member.shortName}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="planner-card">
+        <SectionHeader kicker="QUICK ACTION" title="すぐ使う入口" description="親指で押しやすい主要動線だけを前面に出しています。" />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <ActionCard title="手入力" description="ふだんの支出をすぐ記録" icon={<NotebookPen size={18} />} tone="accent" onClick={() => onOpenExpenseManual()} />
+          <ActionCard title="レシート入力" description="OCR 結果を確認して反映" icon={<ScanText size={18} />} tone="accent" onClick={() => onOpenExpenseReceipt()} />
+          <ActionCard title="カレンダー" description="日付を起点に確認と追加" icon={<List size={18} />} tone="soft" onClick={onOpenCalendar} />
+          <ActionCard title="医療費" description="医療費ダッシュボードへ移動" icon={<HeartPulse size={18} />} tone="medical" onClick={onOpenMedicalDashboard} />
+          <ActionCard title="スーパー分析" description="各店で何が安いかを見る" icon={<Store size={18} />} tone="accent" onClick={onOpenCompare} />
+          <ActionCard title="医療費を追加" description="通院分を手入力またはOCRで追加" icon={<HeartPulse size={18} />} tone="medical" onClick={() => onOpenMedicalManual()} />
+        </div>
+      </section>
+
+      <div className="grid gap-3 lg:grid-cols-[1.2fr_0.9fr]">
+        <section className="planner-card">
+          <SectionHeader kicker="INSIGHT" title="注目情報" description="今月の確認ポイントを先に出します。" />
+          <div className="mt-4 grid gap-3">
+            <div className="planner-note-card">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="planner-kicker">今月の医療費</p>
+                  <p className="mt-2 text-xl font-semibold text-[var(--planner-danger)]">{formatYen(medicalTotal)}</p>
+                </div>
+                {medicalTotal > 0 ? <DataBadge label={`${medicals.length} 件`} tone="medical" /> : <DataBadge label="未記録" />}
+              </div>
+              <p className="mt-2 text-sm text-[var(--planner-subtle)]">家計の支出と分けて、医療費控除に向けた確認をしやすくしています。</p>
+            </div>
+
+            <div className="planner-note-card">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="planner-kicker">固定費</p>
+                  <p className="mt-2 text-xl font-semibold">{formatYen(fixedTotal)}</p>
+                </div>
+                {unconfirmedFixedCount > 0 ? <DataBadge label={`未確認 ${unconfirmedFixedCount}`} tone="warning" /> : <DataBadge label="確認済み" />}
+              </div>
+              <p className="mt-2 text-sm text-[var(--planner-subtle)]">
+                {fixedRecords
+                  .slice(0, 2)
+                  .map((record) => fixedTemplateMap.get(record.templateId ?? "") ?? "固定費")
+                  .join(" / ") || "固定費テンプレートを設定すると今月の定例支出を一覧できます。"}
+              </p>
+            </div>
+
+            <div className="planner-note-card">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="planner-kicker">OCR 未確認</p>
+                  <p className="mt-2 text-xl font-semibold">{pendingOcrCount} 件</p>
+                </div>
+                {pendingOcrCount > 0 ? <DataBadge label="チェック推奨" tone="warning" /> : <DataBadge label="0 件" />}
+              </div>
+              <p className="mt-2 text-sm text-[var(--planner-subtle)]">レシート画像付きで未チェックの記録数です。一覧画面から確認できます。</p>
+              <button type="button" onClick={onOpenList} className="mt-3 text-sm font-semibold text-[var(--planner-accent)]">
+                記録一覧を開く
               </button>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {yearMedTotal >= 100_000 && (
-        <div className="planner-card border-[rgba(212,106,106,0.3)] bg-[rgba(255,245,243,0.95)]">
-          <div className="flex items-start gap-3">
-            <AlertTriangle size={18} className="mt-1 shrink-0 text-[var(--planner-danger)]" />
-            <div>
-              <p className="text-sm font-bold text-[var(--planner-danger)]">今年の医療費は {formatYen(yearMedTotal)}</p>
-              <p className="mt-1 text-xs text-[var(--planner-subtle)]">10万円を超えているので、医療費控除の確認を進めてください。</p>
             </div>
           </div>
-        </div>
-      )}
+        </section>
 
-      <section className="planner-card">
-        <SectionTitle icon={<Sparkles size={16} />} kicker="近くで何がお得か" title="買い物チャンス" />
-        {bargainEntries.length === 0 ? (
-          <EmptyState label="レシートOCRから商品候補が増えると、店ごとの最安値がここに出ます。" />
-        ) : (
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {bargainEntries.map((entry) => (
-              <article key={`${entry.itemLabel}-${entry.best.shopName}`} className="planner-note-card">
-                <p className="planner-kicker">最安候補</p>
-                <h3 className="planner-wrap-text mt-2 text-lg font-bold text-[var(--planner-text)]">{entry.itemLabel}</h3>
-                <p className="mt-3 text-sm text-[var(--planner-subtle)]">{entry.best.shopName || "店名未設定"}</p>
-                <p className="mt-1 text-2xl font-bold text-[var(--planner-accent)]">
-                  {entry.best.unitPrice ? `${entry.best.unitPrice.toLocaleString("ja-JP")}/${entry.best.quantityUnit}` : formatYen(entry.best.totalPrice)}
+        <section className="planner-card">
+          <SectionHeader kicker="COMPARE" title="比較の要約" description="まずは各スーパーの強みから見せます。" />
+          <div className="mt-4 space-y-3">
+            {topStore ? (
+              <div className="planner-note-card">
+                <p className="planner-kicker">得意な店</p>
+                <p className="mt-2 text-lg font-semibold">{topStore.shopName}</p>
+                <p className="mt-2 text-sm text-[var(--planner-subtle)]">
+                  強い商品 {topStore.strongWinCount} 件 / 勝ち筋 {topStore.winCount} 件 / 平均 {compactYen(topStore.averageWinningPrice)}
                 </p>
-                {entry.competitor && entry.savings ? (
-                  <p className="mt-2 text-xs text-[var(--planner-subtle)]">
-                    {entry.competitor.shopName} より {formatYen(entry.savings)} 安い
-                  </p>
-                ) : (
-                  <p className="mt-2 text-xs text-[var(--planner-subtle)]">比較対象のOCRがまだ少ない商品です。</p>
-                )}
-              </article>
-            ))}
+              </div>
+            ) : (
+              <EmptyState title="比較データがまだ少ないです" message="レシートOCRで商品行を読み込むと、各店の得意商品を自動で整理します。" />
+            )}
+
+            {topDeal ? (
+              <div className="planner-note-card">
+                <p className="planner-kicker">最安メモ</p>
+                <p className="mt-2 text-lg font-semibold">{topDeal.itemLabel}</p>
+                <p className="mt-2 text-sm text-[var(--planner-subtle)]">
+                  {topDeal.best.shopName} が最安。{topDeal.priceGap ? `${formatYen(topDeal.priceGap)} 差` : "比較対象は参考値"}
+                </p>
+                <p className="mt-2 text-base font-semibold text-[var(--planner-accent)]">
+                  {topDeal.comparisonBasis === "unit" && topDeal.best.quantityUnit
+                    ? `${topDeal.best.comparisonPrice.toLocaleString("ja-JP")} / ${topDeal.best.quantityUnit}`
+                    : formatYen(topDeal.best.comparisonPrice)}
+                </p>
+              </div>
+            ) : null}
+
+            <button type="button" onClick={onOpenCompare} className="planner-link-row">
+              比較画面を開く
+            </button>
           </div>
-        )}
-      </section>
+        </section>
+      </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+      <div className="grid gap-3 lg:grid-cols-[1.05fr_1fr]">
         <section className="planner-card">
-          <SectionTitle icon={<MapPinned size={16} />} kicker="スーパー比較" title="店ごとの強み" />
-          {storeScores.length === 0 ? (
-            <EmptyState label="OCR から商品価格を取り込むと、どの店が何品目で最安かを集計します。" />
-          ) : (
-            <div className="mt-4 space-y-3">
-              {storeScores.map((score) => (
-                <div key={score.shopName} className="planner-row">
-                  <div className="planner-stamp">{score.wins}</div>
-                  <div className="min-w-0 flex-1">
-                    <p className="planner-wrap-text text-sm font-semibold text-[var(--planner-text)]">{score.shopName}</p>
-                    <p className="text-xs text-[var(--planner-subtle)]">最安を取った品目 {score.wins}件</p>
+          <SectionHeader kicker="HOUSEHOLD" title="今月の家計" description="カテゴリ別に支出のまとまりを確認します。" />
+          <div className="mt-4 space-y-3">
+            {topCategories.length === 0 ? (
+              <EmptyState title="まだ記録がありません" message="手入力またはレシート入力から、まずは今月の支出を追加してください。" />
+            ) : (
+              topCategories.map((category) => {
+                const Icon = resolveIcon(category.icon, "ReceiptText");
+                const ratio = monthTotal > 0 ? Math.min(100, Math.round((category.total / monthTotal) * 100)) : 0;
+                return (
+                  <div key={category.id} className="planner-summary-row">
+                    <div className="planner-summary-icon" style={{ backgroundColor: `${category.colorHex}18`, color: category.colorHex }}>
+                      <Icon size={16} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="truncate text-sm font-semibold">{category.name}</p>
+                        <p className="text-sm font-semibold">{formatYen(category.total)}</p>
+                      </div>
+                      <div className="planner-bar mt-2">
+                        <span className="planner-bar-fill" style={{ width: `${ratio}%`, backgroundColor: category.colorHex }} />
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-sm font-bold text-[var(--planner-text)]">平均 {formatYen(Math.round(score.averagePrice))}</p>
-                </div>
-              ))}
-            </div>
-          )}
+                );
+              })
+            )}
+          </div>
         </section>
 
         <section className="planner-card">
-          <SectionTitle icon={<ReceiptJapaneseYen size={16} />} kicker="単価メモ" title="単価で見比べる" />
-          {unitComparisons.length === 0 ? (
-            <EmptyState label="枚数や ml が読めたレシートから単価比較を作ります。" />
-          ) : (
-            <div className="mt-4 space-y-3">
-              {unitComparisons.map((item) => (
-                <div key={`${item.itemLabel}-${item.best.shopName}`} className="planner-note-card">
-                  <p className="planner-wrap-text text-sm font-semibold text-[var(--planner-text)]">{item.itemLabel}</p>
-                  <p className="mt-1 text-xs text-[var(--planner-subtle)]">{item.best.shopName}</p>
-                  <p className="mt-2 text-lg font-bold text-[var(--planner-accent)]">
-                    {item.best.unitPrice?.toLocaleString("ja-JP")}/{item.best.quantityUnit}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
+          <SectionHeader kicker="RECENT" title="最近の記録" description="直近の流れを時系列で確認できます。" />
+          <div className="mt-4 space-y-3">
+            {recentRecords.length === 0 ? (
+              <EmptyState title="まだ記録がありません" message="今月の記録を追加すると、ここに最近の支出と医療費が並びます。" />
+            ) : (
+              recentRecords.map((record) => {
+                const Icon = resolveIcon(record.icon, "ReceiptText");
+                return (
+                  <div key={record.id} className="planner-summary-row">
+                    <div className="planner-summary-icon" style={{ backgroundColor: `${record.color}18`, color: record.color }}>
+                      <Icon size={16} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold">{record.title}</p>
+                      <p className="truncate text-xs text-[var(--planner-subtle)]">{record.date} / {record.subtitle}</p>
+                    </div>
+                    <p className="text-sm font-semibold">{formatYen(record.amount)}</p>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </section>
       </div>
 
       <section className="planner-card">
-        <SectionTitle icon={<ShoppingBasket size={16} />} kicker="カテゴリ別のまとまり" title="内訳カード" />
-        <div className="mt-4 space-y-3">
-          {categoryTotals.length === 0 ? (
-            <EmptyState label="まだ支出が入っていません。" />
-          ) : (
-            categoryTotals.slice(0, 5).map((category) => <CategoryCard key={category.categoryId} category={category} total={monthTotal} />)
-          )}
-        </div>
-      </section>
-
-      <section className="planner-card">
-        <SectionTitle icon={<HeartPulse size={16} />} kicker="最近の記録" title="入力した内容" />
-        <div className="mt-4 space-y-3">
-          {recent.length === 0 ? (
-            <EmptyState label="まだ記録がありません。" />
-          ) : (
-            recent.map((item) => <RecentRow key={item.id} item={item} categories={categories} members={members} />)
-          )}
+        <SectionHeader kicker="SHORTCUT" title="入力導線" description="日付から入るか、入力方式から入るかを選べます。" />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <ActionCard title="今日の支出を手入力" description="日付つきでそのまま追加" icon={<NotebookPen size={18} />} tone="accent" onClick={() => onOpenExpenseManual()} />
+          <ActionCard title="今日のレシートを読む" description="商品一覧をフォームで確認" icon={<ReceiptText size={18} />} tone="accent" onClick={() => onOpenExpenseReceipt()} />
+          <ActionCard title="医療費を手入力" description="家族と補填額を先に整理" icon={<HeartPulse size={18} />} tone="medical" onClick={() => onOpenMedicalManual()} />
+          <ActionCard title="医療レシートを読む" description="病院名や薬候補を抽出" icon={<ScanText size={18} />} tone="medical" onClick={() => onOpenMedicalReceipt()} />
         </div>
       </section>
     </div>
   );
-}
-
-function HeroMetric({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="planner-note-card">
-      <p className="planner-kicker">{label}</p>
-      <p className={`mt-2 text-3xl font-bold ${accent ? "text-[var(--planner-accent)]" : "text-[var(--planner-text)]"}`}>{value}</p>
-    </div>
-  );
-}
-
-function SectionTitle({ icon, kicker, title }: { icon: JSX.Element; kicker: string; title: string }) {
-  return (
-    <div className="planner-section-header">
-      <div className="flex items-start gap-3">
-        <div className="planner-stamp planner-stamp-soft">{icon}</div>
-        <div>
-          <p className="planner-kicker">{kicker}</p>
-          <h2 className="planner-subheading">{title}</h2>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CategoryCard({ category, total }: { category: CategoryTotal; total: number }) {
-  const ratio = total > 0 ? category.total / total : 0;
-  const Icon = resolveIcon(category.icon, "ReceiptText");
-
-  return (
-    <div className="planner-row">
-      <div className="planner-stamp" style={{ backgroundColor: `${category.color}22`, color: category.color }}>
-        <Icon size={18} color={category.color} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <span className="planner-wrap-text text-sm font-semibold text-[var(--planner-text)]">{category.name}</span>
-          <span className="text-sm font-bold" style={{ color: category.color }}>
-            {formatYen(category.total)}
-          </span>
-        </div>
-        <div className="h-2 rounded-full bg-[var(--planner-soft)]">
-          <div className="h-2 rounded-full" style={{ width: `${ratio * 100}%`, backgroundColor: category.color }} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RecentRow({
-  item,
-  categories,
-  members,
-}: {
-  item: (Expense & { kind: "expense"; displayDate: string }) | (MedicalExpense & { kind: "medical"; displayDate: string });
-  categories: Category[];
-  members: Member[];
-}) {
-  const isMedical = item.kind === "medical";
-  const category = categories.find((current) => current.id === ("categoryId" in item ? item.categoryId : ""));
-  const member = members.find((current) => current.id === item.memberId);
-  const Icon = isMedical ? HeartPulse : resolveIcon(category?.icon, "ReceiptText");
-  const color = isMedical ? "#D46A6A" : category?.colorHex || "#7A7A7A";
-
-  return (
-    <div className="planner-row">
-      <div className="planner-stamp" style={{ backgroundColor: `${color}22`, color }}>
-        <Icon size={18} color={color} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="planner-wrap-text text-sm font-semibold text-[var(--planner-text)]">
-          {isMedical ? item.hospitalName || "医療費" : item.shopName || item.memo || "支出"}
-        </p>
-        <p className="planner-wrap-text text-xs text-[var(--planner-subtle)]">
-          {member?.shortName || "未設定"} ・ {isMedical ? "医療費" : category?.name || "カテゴリ未設定"}
-        </p>
-      </div>
-      <p className="text-sm font-bold text-[var(--planner-text)]">{formatYen(item.amount)}</p>
-    </div>
-  );
-}
-
-function buildBargainEntries(observations: ReceiptItemObservation[]): BargainEntry[] {
-  const byItem = new Map<string, ReceiptItemObservation[]>();
-  observations.forEach((observation) => {
-    if (!observation.normalizedItemName || !(observation.shopName || observation.shopId)) {
-      return;
-    }
-    const key = observation.normalizedItemName;
-    byItem.set(key, [...(byItem.get(key) ?? []), observation]);
-  });
-
-  return Array.from(byItem.values())
-    .map((rows) => {
-      const ranked = rows
-        .slice()
-        .sort((left, right) => getComparablePrice(left) - getComparablePrice(right));
-      const best = ranked[0];
-      const competitor = ranked.find((row) => (row.shopName || row.shopId) !== (best.shopName || best.shopId));
-      return {
-        itemLabel: best.itemName,
-        best,
-        competitor,
-        savings: competitor ? Math.max(0, competitor.totalPrice - best.totalPrice) : undefined,
-      };
-    })
-    .sort((left, right) => (right.savings ?? 0) - (left.savings ?? 0));
-}
-
-function buildStoreScores(observations: ReceiptItemObservation[]): StoreScore[] {
-  const bargains = buildBargainEntries(observations);
-  const map = new Map<string, { wins: number; totalPrice: number }>();
-
-  bargains.forEach((entry) => {
-    const shopName = entry.best.shopName || "店名未設定";
-    const current = map.get(shopName) ?? { wins: 0, totalPrice: 0 };
-    current.wins += 1;
-    current.totalPrice += entry.best.totalPrice;
-    map.set(shopName, current);
-  });
-
-  return Array.from(map.entries())
-    .map(([shopName, stats]) => ({
-      shopName,
-      wins: stats.wins,
-      averagePrice: stats.totalPrice / stats.wins,
-    }))
-    .sort((left, right) => right.wins - left.wins || left.averagePrice - right.averagePrice);
-}
-
-function buildUnitComparisons(observations: ReceiptItemObservation[]): BargainEntry[] {
-  return buildBargainEntries(observations).filter((entry) => Boolean(entry.best.unitPrice && entry.best.quantityUnit));
-}
-
-function getComparablePrice(observation: ReceiptItemObservation) {
-  return observation.unitPrice ?? observation.totalPrice;
-}
-
-function EmptyState({ label }: { label: string }) {
-  return <p className="rounded-[22px] bg-[var(--planner-soft)] px-4 py-6 text-center text-sm text-[var(--planner-subtle)]">{label}</p>;
 }

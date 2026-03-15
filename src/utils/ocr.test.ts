@@ -37,4 +37,19 @@ describe("OCR parsers", () => {
     expect(draft.amount).toBe(2300);
     expect(draft.medicalType).toBe("診療・治療");
   });
+
+  it("extracts medical candidates without overcommitting", () => {
+    const draft = parseMedicalOcrText(`
+      そうごう薬局
+      2026/03/20
+      アセトアミノフェン錠 200mg
+      調剤基本料
+      合計 980円
+    `);
+
+    expect(draft.hospitalCandidates[0]?.value).toBe("そうごう薬局");
+    expect(draft.medicalTypeCandidates).toContain("医薬品購入");
+    expect(draft.medicineCandidates.some((candidate) => candidate.value.includes("アセトアミノフェン"))).toBe(true);
+    expect(draft.memoCandidates.some((candidate) => candidate.value.includes("調剤"))).toBe(true);
+  });
 });

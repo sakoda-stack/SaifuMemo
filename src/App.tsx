@@ -1,6 +1,14 @@
-import { useEffect, useState } from "react";
-import { Calendar, HeartPulse, List, NotebookPen, Settings, Store, Wallet } from "lucide-react";
-import { generateFixedRecords, seedIfNeeded } from "@/db/database";
+import { useEffect, useMemo, useState } from "react";
+import {
+  CalendarDays,
+  HeartPulse,
+  Home,
+  List,
+  NotebookPen,
+  Plus,
+  Settings,
+  Store,
+} from "lucide-react";
 import AddExpenseModal from "@/components/add/AddExpenseModal";
 import AddMedicalModal from "@/components/add/AddMedicalModal";
 import CalendarScreen from "@/components/calendar/CalendarScreen";
@@ -8,36 +16,36 @@ import CompareScreen from "@/components/compare/CompareScreen";
 import HomeScreen from "@/components/home/HomeScreen";
 import ListScreen from "@/components/list/ListScreen";
 import MedicalScreen from "@/components/medical/MedicalScreen";
+import MoreScreen from "@/components/more/MoreScreen";
 import SettingsScreen from "@/components/settings/SettingsScreen";
+import { generateFixedRecords, seedIfNeeded } from "@/db/database";
 import { todayString } from "@/utils";
 
-type Tab = "home" | "compare" | "list" | "calendar" | "medical" | "settings";
+type Page = "home" | "list" | "calendar" | "more" | "compare" | "medical" | "settings";
+type AddFlow = "expense-manual" | "expense-receipt" | "medical-manual" | "medical-receipt" | null;
 
-const TAB_ITEMS: Array<{ id: Tab; label: string; icon: JSX.Element }> = [
-  { id: "home", label: "ホーム", icon: <Wallet size={18} /> },
-  { id: "compare", label: "比較", icon: <Store size={18} /> },
-  { id: "list", label: "一覧", icon: <List size={18} /> },
-  { id: "calendar", label: "カレンダー", icon: <Calendar size={18} /> },
-  { id: "medical", label: "医療費", icon: <HeartPulse size={18} /> },
-  { id: "settings", label: "設定", icon: <Settings size={18} /> },
-];
+const BOTTOM_NAV = [
+  { id: "home", label: "ホーム", icon: Home },
+  { id: "list", label: "記録", icon: List },
+  { id: "add", label: "追加", icon: Plus },
+  { id: "calendar", label: "カレンダー", icon: CalendarDays },
+  { id: "more", label: "その他", icon: NotebookPen },
+] as const;
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("home");
+  const [page, setPage] = useState<Page>("home");
   const [showAddMenu, setShowAddMenu] = useState(false);
-  const [showAddExpense, setShowAddExpense] = useState(false);
-  const [showAddMedical, setShowAddMedical] = useState(false);
+  const [addFlow, setAddFlow] = useState<AddFlow>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [recordDate, setRecordDate] = useState(todayString());
 
   useEffect(() => {
-    seedIfNeeded();
-    generateFixedRecords();
+    void seedIfNeeded();
+    void generateFixedRecords();
   }, []);
 
   const onSaved = () => {
-    setShowAddExpense(false);
-    setShowAddMedical(false);
+    setAddFlow(null);
     setShowAddMenu(false);
     setRefreshKey((current) => current + 1);
   };
@@ -47,104 +55,179 @@ export default function App() {
     setShowAddMenu(true);
   };
 
-  const openExpenseModal = (date?: string) => {
+  const openAddFlow = (flow: Exclude<AddFlow, null>, date?: string) => {
     setRecordDate(date ?? todayString());
     setShowAddMenu(false);
-    setShowAddExpense(true);
+    setAddFlow(flow);
   };
 
-  const openMedicalModal = (date?: string) => {
-    setRecordDate(date ?? todayString());
-    setShowAddMenu(false);
-    setShowAddMedical(true);
-  };
+  const currentBottomTab = useMemo(() => {
+    if (page === "compare" || page === "medical" || page === "settings") {
+      return "more";
+    }
 
-  const screens: Record<Tab, JSX.Element> = {
-    home: <HomeScreen key={refreshKey} />,
-    compare: <CompareScreen key={refreshKey} />,
-    list: <ListScreen key={refreshKey} />,
-    calendar: <CalendarScreen key={refreshKey} onAddExpense={openExpenseModal} onAddMedical={openMedicalModal} />,
-    medical: <MedicalScreen key={refreshKey} />,
-    settings: <SettingsScreen key={refreshKey} />,
-  };
-
-  const showRecordAction = !showAddMenu && !showAddExpense && !showAddMedical && tab !== "settings";
+    return page;
+  }, [page]);
 
   return (
-    <div className="min-h-screen overflow-hidden bg-[var(--planner-bg)]">
+    <div className="min-h-screen bg-[var(--planner-bg)] text-[var(--planner-text)]">
       <div className="planner-backdrop" />
       <div
-        className="relative flex min-h-screen w-full flex-col px-3 pb-6 pt-3"
+        className="relative mx-auto flex min-h-screen w-full max-w-[760px] flex-col"
         style={{
           paddingTop: "max(12px, env(safe-area-inset-top))",
-          paddingBottom: "max(24px, env(safe-area-inset-bottom))",
+          paddingBottom: "max(14px, env(safe-area-inset-bottom))",
         }}
       >
-        <header className="sticky top-0 z-30 pb-3">
-          <div className="planner-tabs">
-            {TAB_ITEMS.map((item) => (
+        <header className="planner-app-bar">
+          <div>
+            <p className="planner-app-bar-kicker">SaifuMemo</p>
+            <p className="planner-app-bar-title">
+              {page === "home" && "今月の家計ポータル"}
+              {page === "list" && "記録一覧"}
+              {page === "calendar" && "カレンダー"}
+              {page === "more" && "その他"}
+              {page === "compare" && "スーパー分析"}
+              {page === "medical" && "医療費ダッシュボード"}
+              {page === "settings" && "設定"}
+            </p>
+          </div>
+          <button type="button" onClick={() => openAddMenu()} className="planner-header-action" aria-label="記録を追加">
+            <Plus size={18} />
+            <span>追加</span>
+          </button>
+        </header>
+
+        <main className="min-h-0 flex-1 overflow-y-auto px-3 pb-24">
+          <div className="planner-sheet">
+            {page === "home" ? (
+              <HomeScreen
+                key={refreshKey}
+                onOpenList={() => setPage("list")}
+                onOpenCalendar={() => setPage("calendar")}
+                onOpenCompare={() => setPage("compare")}
+                onOpenMedicalDashboard={() => setPage("medical")}
+                onOpenExpenseManual={(date) => openAddFlow("expense-manual", date)}
+                onOpenExpenseReceipt={(date) => openAddFlow("expense-receipt", date)}
+                onOpenMedicalManual={(date) => openAddFlow("medical-manual", date)}
+                onOpenMedicalReceipt={(date) => openAddFlow("medical-receipt", date)}
+              />
+            ) : null}
+            {page === "list" ? <ListScreen key={refreshKey} /> : null}
+            {page === "calendar" ? (
+              <CalendarScreen
+                key={refreshKey}
+                onAddExpense={(date) => openAddFlow("expense-manual", date)}
+                onAddMedical={(date) => openAddFlow("medical-manual", date)}
+                onAddExpenseReceipt={(date) => openAddFlow("expense-receipt", date)}
+                onAddMedicalReceipt={(date) => openAddFlow("medical-receipt", date)}
+              />
+            ) : null}
+            {page === "more" ? (
+              <MoreScreen
+                onOpenCompare={() => setPage("compare")}
+                onOpenMedical={() => setPage("medical")}
+                onOpenSettings={() => setPage("settings")}
+              />
+            ) : null}
+            {page === "compare" ? <CompareScreen key={refreshKey} /> : null}
+            {page === "medical" ? <MedicalScreen key={refreshKey} /> : null}
+            {page === "settings" ? <SettingsScreen key={refreshKey} /> : null}
+          </div>
+        </main>
+
+        <nav className="planner-bottom-nav" aria-label="main navigation">
+          {BOTTOM_NAV.map((item) => {
+            const Icon = item.icon;
+            const isActive = currentBottomTab === item.id;
+            return (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setTab(item.id)}
-                className={`planner-tab ${tab === item.id ? "planner-tab-active" : ""}`}
+                onClick={() => {
+                  if (item.id === "add") {
+                    openAddMenu();
+                    return;
+                  }
+
+                  setPage(item.id as Page);
+                }}
+                className={`planner-bottom-tab ${isActive ? "planner-bottom-tab-active" : ""}`}
               >
-                <span>{item.icon}</span>
+                <Icon size={18} />
                 <span>{item.label}</span>
               </button>
-            ))}
-          </div>
-          {showRecordAction && (
-            <div className="mt-2 flex justify-end">
-              <button
-                type="button"
-                onClick={() => openAddMenu()}
-                className="planner-header-action"
-                aria-label="記録を追加"
-              >
-                <NotebookPen size={18} />
-                <span>記録する</span>
-              </button>
-            </div>
-          )}
-        </header>
-
-        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-          <div className="planner-sheet">{screens[tab]}</div>
-        </main>
+            );
+          })}
+        </nav>
       </div>
 
-      {showAddMenu && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center" onClick={() => setShowAddMenu(false)}>
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
-          <div
-            className="relative mx-3 mb-3 w-[calc(100%-24px)] rounded-[28px] border border-[var(--planner-line)] bg-[var(--planner-paper)] p-5 shadow-[0_18px_60px_rgba(78,64,52,0.18)] fade-in"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[var(--planner-line)]" />
-            <p className="planner-kicker text-center">新しく記録する</p>
+      {showAddMenu ? (
+        <div className="planner-overlay" onClick={() => setShowAddMenu(false)}>
+          <div className="planner-overlay-backdrop" />
+          <div className="planner-sheet-menu" onClick={(event) => event.stopPropagation()}>
+            <div className="planner-sheet-handle" />
+            <p className="planner-kicker">ADD</p>
+            <h2 className="planner-section-title">入力方法を選ぶ</h2>
             <div className="mt-4 grid gap-3">
-              <button type="button" onClick={() => openExpenseModal(recordDate)} className="planner-choice">
-                <span className="planner-choice-icon bg-[rgba(106,132,195,0.14)] text-[var(--planner-accent)]">🛒</span>
+              <button type="button" className="planner-choice" onClick={() => openAddFlow("expense-manual", recordDate)}>
+                <span className="planner-choice-icon bg-[rgba(72,108,165,0.12)] text-[var(--planner-accent)]">
+                  <NotebookPen size={18} />
+                </span>
                 <span>
-                  <strong className="block text-sm text-[var(--planner-text)]">ふだんの支出</strong>
-                  <span className="text-xs text-[var(--planner-subtle)]">買い物や日用品などの家計記録</span>
+                  <strong className="block text-sm text-[var(--planner-text)]">手入力で支出を追加</strong>
+                  <span className="text-xs text-[var(--planner-subtle)]">金額、カテゴリ、店舗をすぐ記録</span>
                 </span>
               </button>
-              <button type="button" onClick={() => openMedicalModal(recordDate)} className="planner-choice">
-                <span className="planner-choice-icon bg-[rgba(212,106,106,0.14)] text-[var(--planner-danger)]">🏥</span>
+              <button type="button" className="planner-choice" onClick={() => openAddFlow("expense-receipt", recordDate)}>
+                <span className="planner-choice-icon bg-[rgba(72,108,165,0.12)] text-[var(--planner-accent)]">
+                  <Store size={18} />
+                </span>
                 <span>
-                  <strong className="block text-sm text-[var(--planner-text)]">医療費</strong>
-                  <span className="text-xs text-[var(--planner-subtle)]">病院代や薬代、通院交通費をまとめる</span>
+                  <strong className="block text-sm text-[var(--planner-text)]">レシートから支出を追加</strong>
+                  <span className="text-xs text-[var(--planner-subtle)]">OCR 結果を確認して商品行まで反映</span>
+                </span>
+              </button>
+              <button type="button" className="planner-choice" onClick={() => openAddFlow("medical-manual", recordDate)}>
+                <span className="planner-choice-icon bg-[rgba(184,78,65,0.12)] text-[var(--planner-danger)]">
+                  <HeartPulse size={18} />
+                </span>
+                <span>
+                  <strong className="block text-sm text-[var(--planner-text)]">手入力で医療費を追加</strong>
+                  <span className="text-xs text-[var(--planner-subtle)]">家族、補填額、医療区分を整理して保存</span>
+                </span>
+              </button>
+              <button type="button" className="planner-choice" onClick={() => openAddFlow("medical-receipt", recordDate)}>
+                <span className="planner-choice-icon bg-[rgba(184,78,65,0.12)] text-[var(--planner-danger)]">
+                  <HeartPulse size={18} />
+                </span>
+                <span>
+                  <strong className="block text-sm text-[var(--planner-text)]">レシートから医療費を追加</strong>
+                  <span className="text-xs text-[var(--planner-subtle)]">病院名、薬候補、区分候補を確認して反映</span>
                 </span>
               </button>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {showAddExpense && <AddExpenseModal initialDate={recordDate} onClose={() => setShowAddExpense(false)} onSaved={onSaved} />}
-      {showAddMedical && <AddMedicalModal initialDate={recordDate} onClose={() => setShowAddMedical(false)} onSaved={onSaved} />}
+      {addFlow === "expense-manual" || addFlow === "expense-receipt" ? (
+        <AddExpenseModal
+          initialDate={recordDate}
+          initialMode={addFlow === "expense-manual" ? "manual" : "receipt"}
+          onClose={() => setAddFlow(null)}
+          onSaved={onSaved}
+        />
+      ) : null}
+
+      {addFlow === "medical-manual" || addFlow === "medical-receipt" ? (
+        <AddMedicalModal
+          initialDate={recordDate}
+          initialMode={addFlow === "medical-manual" ? "manual" : "receipt"}
+          onClose={() => setAddFlow(null)}
+          onSaved={onSaved}
+        />
+      ) : null}
     </div>
   );
 }
